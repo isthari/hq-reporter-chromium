@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
@@ -46,11 +46,16 @@
 #endif
 
 // STACK_SAMPLING_PROFILER_SUPPORTED is used to conditionally enable the tests
-// below for supported platforms (currently Win x64, Mac x64 and iOS 64).
-#if (BUILDFLAG(IS_WIN) && defined(ARCH_CPU_X86_64)) ||  \
-    (BUILDFLAG(IS_MAC) && defined(ARCH_CPU_X86_64)) ||  \
-    (BUILDFLAG(IS_IOS) && defined(ARCH_CPU_64_BITS)) || \
-    (BUILDFLAG(IS_ANDROID) && BUILDFLAG(ENABLE_ARM_CFI_TABLE))
+// below for supported platforms (currently Win x64, Mac x64, iOS 64, some
+// Android, and ChromeOS x64).
+// ChromeOS: These don't run under MSan because parts of the stack aren't
+// initialized.
+#if (BUILDFLAG(IS_WIN) && defined(ARCH_CPU_X86_64)) ||            \
+    (BUILDFLAG(IS_MAC) && defined(ARCH_CPU_X86_64)) ||            \
+    (BUILDFLAG(IS_IOS) && defined(ARCH_CPU_64_BITS)) ||           \
+    (BUILDFLAG(IS_ANDROID) && BUILDFLAG(ENABLE_ARM_CFI_TABLE)) || \
+    (BUILDFLAG(IS_CHROMEOS) && defined(ARCH_CPU_X86_64) &&        \
+     !defined(MEMORY_SANITIZER))
 #define STACK_SAMPLING_PROFILER_SUPPORTED 1
 #endif
 
@@ -85,6 +90,9 @@ struct Profile {
   // The retrospective metadata requests.
   std::vector<RetrospectiveMetadata> retrospective_metadata;
 
+  // The profile metadata requests.
+  std::vector<MetadataRecorder::Item> profile_metadata;
+
   // Duration of this profile.
   TimeDelta profile_duration;
 
@@ -116,6 +124,7 @@ class TestProfileBuilder : public ProfileBuilder {
       TimeTicks period_start,
       TimeTicks period_end,
       const MetadataRecorder::Item& item) override;
+  void AddProfileMetadata(const MetadataRecorder::Item& item) override;
   void OnSampleCompleted(std::vector<Frame> sample,
                          TimeTicks sample_timestamp) override;
   void OnProfileCompleted(TimeDelta profile_duration,
@@ -132,6 +141,9 @@ class TestProfileBuilder : public ProfileBuilder {
 
   // The retrospective metadata requests.
   std::vector<RetrospectiveMetadata> retrospective_metadata_;
+
+  // The profile metadata requests.
+  std::vector<MetadataRecorder::Item> profile_metadata_;
 
   // Callback made when sampling a profile completes.
   ProfileCompletedCallback callback_;
@@ -160,6 +172,11 @@ void TestProfileBuilder::ApplyMetadataRetrospectively(
       RetrospectiveMetadata{period_start, period_end, item});
 }
 
+void TestProfileBuilder::AddProfileMetadata(
+    const MetadataRecorder::Item& item) {
+  profile_metadata_.push_back(item);
+}
+
 void TestProfileBuilder::OnSampleCompleted(std::vector<Frame> sample,
                                            TimeTicks sample_timestamp) {
   samples_.push_back(std::move(sample));
@@ -168,8 +185,8 @@ void TestProfileBuilder::OnSampleCompleted(std::vector<Frame> sample,
 void TestProfileBuilder::OnProfileCompleted(TimeDelta profile_duration,
                                             TimeDelta sampling_period) {
   std::move(callback_).Run(Profile{samples_, record_metadata_count_,
-                                   retrospective_metadata_, profile_duration,
-                                   sampling_period});
+                                   retrospective_metadata_, profile_metadata_,
+                                   profile_duration, sampling_period});
 }
 
 // Unloads |library| and returns when it has completed unloading. Unloading a
@@ -190,7 +207,7 @@ void SynchronousUnloadNativeLibrary(NativeLibrary library) {
          ::GetLastError() != ERROR_MOD_NOT_FOUND) {
     PlatformThread::Sleep(Milliseconds(1));
   }
-#elif BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_ANDROID)
+#elif BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS)
 // Unloading a library on Mac and Android is synchronous.
 #else
   NOTIMPLEMENTED();
@@ -310,10 +327,7 @@ void TestLibraryUnload(bool wait_until_unloaded, ModuleCache* module_cache) {
   UnwindScenario::SampleEvents events;
   TargetThread target_thread(
       BindLambdaForTesting([&]() { scenario.Execute(&events); }));
-
-  PlatformThreadHandle target_thread_handle;
-  EXPECT_TRUE(PlatformThread::Create(0, &target_thread, &target_thread_handle));
-
+  target_thread.Start();
   events.ready_for_sample.Wait();
 
   WaitableEvent sampling_thread_completed(
@@ -347,7 +361,7 @@ void TestLibraryUnload(bool wait_until_unloaded, ModuleCache* module_cache) {
   // Cause the target thread to finish, so that it's no longer executing code in
   // the library we're about to unload.
   events.sample_finished.Signal();
-  PlatformThread::Join(target_thread_handle);
+  target_thread.Join();
 
   // Unload the library now that it's not being used.
   if (wait_until_unloaded)
@@ -436,8 +450,13 @@ class StackSamplingProfilerTest : public testing::Test {
 //
 // TODO(https://crbug.com/1100175): Enable this test again for Android with
 // ASAN. This is now disabled because the android-asan bot fails.
-#if (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_APPLE)) || \
-    (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_ANDROID))
+//
+// If we're running the ChromeOS unit tests on Linux, this test will never pass
+// because Ubuntu's libc isn't compiled with frame pointers. Skip if not a real
+// ChromeOS device.
+#if (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_APPLE)) ||   \
+    (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_ANDROID)) || \
+    (BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHROMEOS_DEVICE))
 #define MAYBE_Basic DISABLED_Basic
 #else
 #define MAYBE_Basic Basic
@@ -476,7 +495,7 @@ class TestAuxUnwinder : public Unwinder {
 
   UnwindResult TryUnwind(RegisterContext* thread_context,
                          uintptr_t stack_top,
-                         std::vector<Frame>* stack) const override {
+                         std::vector<Frame>* stack) override {
     stack->push_back(frame_to_report_);
     return UnwindResult::kAborted;
   }
@@ -491,7 +510,12 @@ class TestAuxUnwinder : public Unwinder {
 // macOS ASAN is not yet supported - crbug.com/718628.
 // Android is not supported since Chrome unwind tables don't support dynamic
 // frames.
-#if (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_APPLE)) || BUILDFLAG(IS_ANDROID)
+// If we're running the ChromeOS unit tests on Linux, this test will never pass
+// because Ubuntu's libc isn't compiled with frame pointers. Skip if not a real
+// ChromeOS device.
+#if (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_APPLE)) || \
+    BUILDFLAG(IS_ANDROID) ||                               \
+    (BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHROMEOS_DEVICE))
 #define MAYBE_Alloca DISABLED_Alloca
 #else
 #define MAYBE_Alloca Alloca
@@ -514,10 +538,14 @@ PROFILER_TEST_F(StackSamplingProfilerTest, MAYBE_Alloca) {
 // have unwind tables.
 // TODO(https://crbug.com/1100175): Enable this test again for Android with
 // ASAN. This is now disabled because the android-asan bot fails.
+// If we're running the ChromeOS unit tests on Linux, this test will never pass
+// because Ubuntu's libc isn't compiled with frame pointers. Skip if not a real
+// ChromeOS device.
 #if (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_APPLE)) ||         \
     BUILDFLAG(IS_IOS) ||                                           \
     (BUILDFLAG(IS_ANDROID) && BUILDFLAG(EXCLUDE_UNWIND_TABLES)) || \
-    (BUILDFLAG(IS_ANDROID) && defined(ADDRESS_SANITIZER))
+    (BUILDFLAG(IS_ANDROID) && defined(ADDRESS_SANITIZER)) ||       \
+    (BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHROMEOS_DEVICE))
 #define MAYBE_OtherLibrary DISABLED_OtherLibrary
 #else
 #define MAYBE_OtherLibrary OtherLibrary
@@ -541,9 +569,13 @@ PROFILER_TEST_F(StackSamplingProfilerTest, MAYBE_OtherLibrary) {
 // have unwind tables.
 // TODO(https://crbug.com/1100175): Enable this test again for Android with
 // ASAN. This is now disabled because the android-asan bot fails.
+// If we're running the ChromeOS unit tests on Linux, this test will never pass
+// because Ubuntu's libc isn't compiled with frame pointers. Skip if not a real
+// ChromeOS device.
 #if BUILDFLAG(IS_APPLE) ||                                         \
     (BUILDFLAG(IS_ANDROID) && BUILDFLAG(EXCLUDE_UNWIND_TABLES)) || \
-    (BUILDFLAG(IS_ANDROID) && defined(ADDRESS_SANITIZER))
+    (BUILDFLAG(IS_ANDROID) && defined(ADDRESS_SANITIZER)) ||       \
+    (BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHROMEOS_DEVICE))
 #define MAYBE_UnloadingLibrary DISABLED_UnloadingLibrary
 #else
 #define MAYBE_UnloadingLibrary UnloadingLibrary
@@ -556,8 +588,12 @@ PROFILER_TEST_F(StackSamplingProfilerTest, MAYBE_UnloadingLibrary) {
 // produces a stack, and doesn't crash.
 // macOS ASAN is not yet supported - crbug.com/718628.
 // Android is not supported since modules are found before unwinding.
+// If we're running the ChromeOS unit tests on Linux, this test will never pass
+// because Ubuntu's libc isn't compiled with frame pointers. Skip if not a real
+// ChromeOS device.
 #if (defined(ADDRESS_SANITIZER) && BUILDFLAG(IS_APPLE)) || \
-    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS) ||          \
+    (BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHROMEOS_DEVICE))
 #define MAYBE_UnloadedLibrary DISABLED_UnloadedLibrary
 #else
 #define MAYBE_UnloadedLibrary UnloadedLibrary
@@ -634,7 +670,7 @@ PROFILER_TEST_F(StackSamplingProfilerTest, StopSafely) {
         params[1].sampling_interval = Milliseconds(1);
         params[1].samples_per_profile = 100000;
 
-        SampleRecordedCounter samples_recorded[size(params)];
+        SampleRecordedCounter samples_recorded[std::size(params)];
         ModuleCache module_cache1, module_cache2;
         TestProfilerInfo profiler_info0(target_thread_token, params[0],
                                         &module_cache1, &samples_recorded[0]);
@@ -1133,19 +1169,14 @@ PROFILER_TEST_F(StackSamplingProfilerTest, MultipleSampledThreads) {
   UnwindScenario::SampleEvents events1;
   TargetThread target_thread1(
       BindLambdaForTesting([&]() { scenario1.Execute(&events1); }));
-  PlatformThreadHandle target_thread_handle1;
-  EXPECT_TRUE(
-      PlatformThread::Create(0, &target_thread1, &target_thread_handle1));
+  target_thread1.Start();
   events1.ready_for_sample.Wait();
 
   UnwindScenario scenario2(BindRepeating(&CallWithPlainFunction));
   UnwindScenario::SampleEvents events2;
   TargetThread target_thread2(
       BindLambdaForTesting([&]() { scenario2.Execute(&events2); }));
-
-  PlatformThreadHandle target_thread_handle2;
-  EXPECT_TRUE(
-      PlatformThread::Create(0, &target_thread2, &target_thread_handle2));
+  target_thread2.Start();
   events2.ready_for_sample.Wait();
 
   // Providing an initial delay makes it more likely that both will be
@@ -1201,8 +1232,8 @@ PROFILER_TEST_F(StackSamplingProfilerTest, MultipleSampledThreads) {
 
   events1.sample_finished.Signal();
   events2.sample_finished.Signal();
-  PlatformThread::Join(target_thread_handle1);
-  PlatformThread::Join(target_thread_handle2);
+  target_thread1.Join();
+  target_thread2.Join();
 }
 
 // A simple thread that runs a profiler on another thread.
@@ -1499,9 +1530,11 @@ PROFILER_TEST_F(StackSamplingProfilerTest,
             // samples 2 and 3, and likewise [times[2], times[4]] is guaranteed
             // to include only samples 3 and 4.
             ApplyMetadataToPastSamples(sample_times[1], sample_times[3],
-                                       "TestMetadata1", 10);
+                                       "TestMetadata1", 10,
+                                       base::SampleMetadataScope::kProcess);
             ApplyMetadataToPastSamples(sample_times[2], sample_times[4],
-                                       "TestMetadata2", 100, 11);
+                                       "TestMetadata2", 100, 11,
+                                       base::SampleMetadataScope::kProcess);
             profiler.Stop();
           }));
 
@@ -1521,6 +1554,245 @@ PROFILER_TEST_F(StackSamplingProfilerTest,
   ASSERT_TRUE(metadata2.item.key.has_value());
   EXPECT_EQ(100, *metadata2.item.key);
   EXPECT_EQ(11, metadata2.item.value);
+}
+
+PROFILER_TEST_F(
+    StackSamplingProfilerTest,
+    ApplyMetadataToPastSamples_PassedToProfileBuilder_MultipleCollections) {
+  SamplingParams params;
+  params.sampling_interval = Milliseconds(10);
+  // 10,000 samples ensures the profiler continues running until manually
+  // stopped, after applying metadata.
+  params.samples_per_profile = 10000;
+  ModuleCache module_cache1, module_cache2;
+
+  WaitableEvent profiler1_started;
+  WaitableEvent profiler2_started;
+  WaitableEvent profiler1_metadata_applied;
+  WaitableEvent profiler2_metadata_applied;
+
+  Profile profile1;
+  WaitableEvent sampling_completed1;
+  TargetThread target_thread1(BindLambdaForTesting([&]() {
+    StackSamplingProfiler profiler1(
+        target_thread1.thread_token(), params,
+        std::make_unique<TestProfileBuilder>(
+            &module_cache1, BindLambdaForTesting([&](Profile result_profile) {
+              profile1 = std::move(result_profile);
+              sampling_completed1.Signal();
+            })),
+        CreateCoreUnwindersFactoryForTesting(&module_cache1),
+        RepeatingClosure());
+    profiler1.Start();
+    profiler1_started.Signal();
+    profiler2_started.Wait();
+
+    // Record metadata on past samples only for this thread. The time range
+    // shouldn't affect the outcome, it should always be passed to the
+    // ProfileBuilder.
+    ApplyMetadataToPastSamples(TimeTicks(), TimeTicks::Now(), "TestMetadata1",
+                               10, 10, SampleMetadataScope::kThread);
+
+    profiler1_metadata_applied.Signal();
+    profiler2_metadata_applied.Wait();
+    profiler1.Stop();
+  }));
+  target_thread1.Start();
+
+  Profile profile2;
+  WaitableEvent sampling_completed2;
+  TargetThread target_thread2(BindLambdaForTesting([&]() {
+    StackSamplingProfiler profiler2(
+        target_thread2.thread_token(), params,
+        std::make_unique<TestProfileBuilder>(
+            &module_cache2, BindLambdaForTesting([&](Profile result_profile) {
+              profile2 = std::move(result_profile);
+              sampling_completed2.Signal();
+            })),
+        CreateCoreUnwindersFactoryForTesting(&module_cache2),
+        RepeatingClosure());
+    profiler2.Start();
+    profiler2_started.Signal();
+    profiler1_started.Wait();
+
+    // Record metadata on past samples only for this thread.
+    ApplyMetadataToPastSamples(TimeTicks(), TimeTicks::Now(), "TestMetadata2",
+                               20, 20, SampleMetadataScope::kThread);
+
+    profiler2_metadata_applied.Signal();
+    profiler1_metadata_applied.Wait();
+    profiler2.Stop();
+  }));
+  target_thread2.Start();
+
+  target_thread1.Join();
+  target_thread2.Join();
+
+  // Wait for the profile to be captured before checking expectations.
+  sampling_completed1.Wait();
+  sampling_completed2.Wait();
+
+  ASSERT_EQ(1u, profile1.retrospective_metadata.size());
+  ASSERT_EQ(1u, profile2.retrospective_metadata.size());
+
+  {
+    const RetrospectiveMetadata& metadata1 = profile1.retrospective_metadata[0];
+    EXPECT_EQ(HashMetricName("TestMetadata1"), metadata1.item.name_hash);
+    ASSERT_TRUE(metadata1.item.key.has_value());
+    EXPECT_EQ(10, *metadata1.item.key);
+    EXPECT_EQ(10, metadata1.item.value);
+  }
+  {
+    const RetrospectiveMetadata& metadata2 = profile2.retrospective_metadata[0];
+    EXPECT_EQ(HashMetricName("TestMetadata2"), metadata2.item.name_hash);
+    ASSERT_TRUE(metadata2.item.key.has_value());
+    EXPECT_EQ(20, *metadata2.item.key);
+    EXPECT_EQ(20, metadata2.item.value);
+  }
+}
+
+// Checks that requests to add profile metadata are passed on to the profile
+// builder.
+PROFILER_TEST_F(StackSamplingProfilerTest,
+                AddProfileMetadata_PassedToProfileBuilder) {
+  // Runs the passed closure on the profiler thread after a sample is taken.
+  class PostSampleInvoker : public StackSamplerTestDelegate {
+   public:
+    explicit PostSampleInvoker(RepeatingClosure post_sample_closure)
+        : post_sample_closure_(std::move(post_sample_closure)) {}
+
+    void OnPreStackWalk() override { post_sample_closure_.Run(); }
+
+   private:
+    RepeatingClosure post_sample_closure_;
+  };
+
+  SamplingParams params;
+  params.sampling_interval = Milliseconds(10);
+  // 10,000 samples ensures the profiler continues running until manually
+  // stopped.
+  params.samples_per_profile = 10000;
+
+  UnwindScenario scenario(BindRepeating(&CallWithPlainFunction));
+
+  Profile profile;
+  WithTargetThread(
+      &scenario,
+      BindLambdaForTesting(
+          [&](SamplingProfilerThreadToken target_thread_token) {
+            WaitableEvent sample_seen(WaitableEvent::ResetPolicy::AUTOMATIC);
+            PostSampleInvoker post_sample_invoker(
+                BindLambdaForTesting([&]() { sample_seen.Signal(); }));
+
+            StackSamplingProfiler profiler(
+                target_thread_token, params,
+                std::make_unique<TestProfileBuilder>(
+                    module_cache(),
+                    BindLambdaForTesting([&profile](Profile result_profile) {
+                      profile = std::move(result_profile);
+                    })),
+                CreateCoreUnwindersFactoryForTesting(module_cache()),
+                RepeatingClosure(), &post_sample_invoker);
+            profiler.Start();
+            sample_seen.Wait();
+            AddProfileMetadata("TestMetadata", 1, 2,
+                               SampleMetadataScope::kProcess);
+            profiler.Stop();
+          }));
+
+  ASSERT_EQ(1u, profile.profile_metadata.size());
+  const MetadataRecorder::Item& item = profile.profile_metadata[0];
+  EXPECT_EQ(HashMetricName("TestMetadata"), item.name_hash);
+  EXPECT_EQ(1, *item.key);
+  EXPECT_EQ(2, item.value);
+}
+
+PROFILER_TEST_F(StackSamplingProfilerTest,
+                AddProfileMetadata_PassedToProfileBuilder_MultipleCollections) {
+  SamplingParams params;
+  params.sampling_interval = Milliseconds(10);
+  // 10,000 samples ensures the profiler continues running until manually
+  // stopped.
+  params.samples_per_profile = 10000;
+  ModuleCache module_cache1, module_cache2;
+
+  WaitableEvent profiler1_started;
+  WaitableEvent profiler2_started;
+  WaitableEvent profiler1_metadata_applied;
+  WaitableEvent profiler2_metadata_applied;
+
+  Profile profile1;
+  WaitableEvent sampling_completed1;
+  TargetThread target_thread1(BindLambdaForTesting([&]() {
+    StackSamplingProfiler profiler1(
+        target_thread1.thread_token(), params,
+        std::make_unique<TestProfileBuilder>(
+            &module_cache1, BindLambdaForTesting([&](Profile result_profile) {
+              profile1 = std::move(result_profile);
+              sampling_completed1.Signal();
+            })),
+        CreateCoreUnwindersFactoryForTesting(&module_cache1),
+        RepeatingClosure());
+    profiler1.Start();
+    profiler1_started.Signal();
+    profiler2_started.Wait();
+
+    AddProfileMetadata("TestMetadata1", 1, 2, SampleMetadataScope::kThread);
+
+    profiler1_metadata_applied.Signal();
+    profiler2_metadata_applied.Wait();
+    profiler1.Stop();
+  }));
+  target_thread1.Start();
+
+  Profile profile2;
+  WaitableEvent sampling_completed2;
+  TargetThread target_thread2(BindLambdaForTesting([&]() {
+    StackSamplingProfiler profiler2(
+        target_thread2.thread_token(), params,
+        std::make_unique<TestProfileBuilder>(
+            &module_cache2, BindLambdaForTesting([&](Profile result_profile) {
+              profile2 = std::move(result_profile);
+              sampling_completed2.Signal();
+            })),
+        CreateCoreUnwindersFactoryForTesting(&module_cache2),
+        RepeatingClosure());
+    profiler2.Start();
+    profiler2_started.Signal();
+    profiler1_started.Wait();
+
+    AddProfileMetadata("TestMetadata2", 11, 12, SampleMetadataScope::kThread);
+
+    profiler2_metadata_applied.Signal();
+    profiler1_metadata_applied.Wait();
+    profiler2.Stop();
+  }));
+  target_thread2.Start();
+
+  target_thread1.Join();
+  target_thread2.Join();
+
+  // Wait for the profile to be captured before checking expectations.
+  sampling_completed1.Wait();
+  sampling_completed2.Wait();
+
+  ASSERT_EQ(1u, profile1.profile_metadata.size());
+  ASSERT_EQ(1u, profile2.profile_metadata.size());
+
+  {
+    const MetadataRecorder::Item& item = profile1.profile_metadata[0];
+    EXPECT_EQ(HashMetricName("TestMetadata1"), item.name_hash);
+    ASSERT_TRUE(item.key.has_value());
+    EXPECT_EQ(1, *item.key);
+    EXPECT_EQ(2, item.value);
+  }
+  {
+    const MetadataRecorder::Item& item = profile2.profile_metadata[0];
+    EXPECT_EQ(HashMetricName("TestMetadata2"), item.name_hash);
+    ASSERT_TRUE(item.key.has_value());
+    EXPECT_EQ(11, *item.key);
+    EXPECT_EQ(12, item.value);
+  }
 }
 
 }  // namespace base

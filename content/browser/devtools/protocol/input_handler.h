@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@
 #include "content/common/input/synthetic_pointer_action_list_params.h"
 #include "content/common/input/synthetic_smooth_scroll_gesture_params.h"
 #include "content/public/browser/render_widget_host.h"
+#include "third_party/blink/public/common/input/pointer_id.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/mojom/page/widget.mojom.h"
 
@@ -29,6 +30,7 @@ namespace content {
 class DevToolsAgentHostImpl;
 class RenderFrameHostImpl;
 class RenderWidgetHostImpl;
+class WebContentsImpl;
 
 namespace protocol {
 
@@ -47,10 +49,17 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
   void SetRenderer(int process_host_id,
                    RenderFrameHostImpl* frame_host) override;
 
-  void OnPageScaleFactorChanged(float page_scale_factor);
   void StartDragging(const blink::mojom::DragData& drag_data,
                      blink::DragOperationsMask drag_operations_mask,
                      bool* intercepted);
+  // DragEnded is used to inform CDP's InputHandler when a drag has ended. This
+  // can occur in two situations:
+  //
+  //  1. because of CDP (this will be implemented in another CL) and
+  //  2. because of an external source such as an external interaction to the OS
+  //     by a user.
+  //
+  void DragEnded();
 
   Response Disable() override;
 
@@ -181,7 +190,6 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
   void OnWidgetForDispatchMouseEvent(
       std::unique_ptr<DispatchMouseEventCallback> callback,
       std::unique_ptr<blink::WebMouseEvent> mouse_event,
-      blink::WebMouseWheelEvent* wheel_event,
       base::WeakPtr<RenderWidgetHostViewBase> target,
       absl::optional<gfx::PointF> point);
 
@@ -235,13 +243,14 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
 
   RenderWidgetHostViewBase* GetRootView();
 
+  float ScaleFactor();
+
   RenderFrameHostImpl* host_;
   // WebContents associated with the |host_|.
-  WebContents* web_contents_;
+  WebContentsImpl* web_contents_ = nullptr;
   std::unique_ptr<Input::Frontend> frontend_;
   base::flat_set<std::unique_ptr<InputInjector>, base::UniquePtrComparator>
       injectors_;
-  float page_scale_factor_;
   int last_id_;
   bool ignore_input_events_ = false;
   bool intercept_drags_ = false;
@@ -249,7 +258,7 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
   const bool allow_sending_input_to_browser_ = false;
   std::set<int> pointer_ids_;
   std::unique_ptr<SyntheticPointerDriver> synthetic_pointer_driver_;
-  base::flat_map<int, blink::WebTouchPoint> touch_points_;
+  base::flat_map<blink::PointerId, blink::WebTouchPoint> touch_points_;
   base::WeakPtrFactory<InputHandler> weak_factory_{this};
 };
 

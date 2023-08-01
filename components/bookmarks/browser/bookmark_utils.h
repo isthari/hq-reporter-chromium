@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_offset_string_conversions.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
+#include "components/bookmarks/common/bookmark_metrics.h"
 #include "components/prefs/pref_registry_simple.h"
 
 class GURL;
@@ -65,12 +66,14 @@ void CloneBookmarkNode(BookmarkModel* model,
                        size_t index_to_add_at,
                        bool reset_node_times);
 
-// Copies nodes onto the clipboard. If |remove_nodes| is true the nodes are
+// Copies nodes onto the clipboard. If `remove_nodes` is true the nodes are
 // removed after copied to the clipboard. The nodes are copied in such a way
-// that if pasted again copies are made.
+// that if pasted again copies are made. Pass the calling context through as
+// `source`.
 void CopyToClipboard(BookmarkModel* model,
                      const std::vector<const BookmarkNode*>& nodes,
-                     bool remove_nodes);
+                     bool remove_nodes,
+                     metrics::BookmarkEditSource source);
 
 // Pastes from the clipboard. The new nodes are added to |parent|, unless
 // |parent| is null in which case this does nothing. The nodes are inserted
@@ -95,6 +98,14 @@ void GetMostRecentlyAddedEntries(BookmarkModel* model,
 
 // Returns true if |n1| was added more recently than |n2|.
 bool MoreRecentlyAdded(const BookmarkNode* n1, const BookmarkNode* n2);
+
+// Returns the most recently used bookmarks. This does not return folders,
+// only nodes of type url. Note: If the bookmarks have the same used time, this
+// will return the more recent added bookmarks. Normally, this happens when the
+// bookmarks are never used.
+void GetMostRecentlyUsedEntries(BookmarkModel* model,
+                                size_t count,
+                                std::vector<const BookmarkNode*>* nodes);
 
 // Returns up to |max_count| bookmarks from |model| whose url or title contain
 // the text |query.word_phrase_query| and exactly match |query.url| and
@@ -134,9 +145,10 @@ void DeleteBookmarkFolders(BookmarkModel* model,
                            const std::vector<int64_t>& ids);
 
 // If there are no user bookmarks for url, a bookmark is created.
-void AddIfNotBookmarked(BookmarkModel* model,
-                        const GURL& url,
-                        const std::u16string& title);
+const BookmarkNode* AddIfNotBookmarked(BookmarkModel* model,
+                                       const GURL& url,
+                                       const std::u16string& title,
+                                       const BookmarkNode* parent = nullptr);
 
 // Removes all bookmarks for the given |url|.
 void RemoveAllBookmarks(BookmarkModel* model, const GURL& url);
@@ -178,6 +190,10 @@ bool IsBookmarkedByUser(BookmarkModel* model, const GURL& url);
 
 // Returns the node with |id|, or NULL if there is no node with |id|.
 const BookmarkNode* GetBookmarkNodeByID(const BookmarkModel* model, int64_t id);
+
+// Returns the node with |uuid|, or NULL if there is no node with |uuid|.
+const BookmarkNode* GetBookmarkNodeByUuid(const BookmarkModel* model,
+                                          const base::Uuid& uuid);
 
 // Returns true if |node| is a descendant of |root|.
 bool IsDescendantOf(const BookmarkNode* node, const BookmarkNode* root);

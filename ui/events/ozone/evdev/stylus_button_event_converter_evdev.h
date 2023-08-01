@@ -1,13 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_EVENTS_OZONE_EVDEV_STYLUS_BUTTON_EVENT_CONVERTER_EVDEV_H_
 #define UI_EVENTS_OZONE_EVDEV_STYLUS_BUTTON_EVENT_CONVERTER_EVDEV_H_
 
+#include <ostream>
+
 #include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_file.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/events/ozone/evdev/event_converter_evdev.h"
 #include "ui/events/ozone/evdev/event_device_info.h"
 
@@ -36,6 +39,8 @@ class COMPONENT_EXPORT(EVDEV) StylusButtonEventConverterEvdev
 
   void ProcessEvent(const struct input_event& input);
 
+  std::ostream& DescribeForLog(std::ostream& os) const override;
+
  private:
   friend class MockStylusButtonEventConverterEvdev;
 
@@ -43,7 +48,7 @@ class COMPONENT_EXPORT(EVDEV) StylusButtonEventConverterEvdev
   const base::ScopedFD input_device_fd_;
 
   // Callbacks for dispatching events.
-  DeviceEventDispatcherEvdev* const dispatcher_;
+  const raw_ptr<DeviceEventDispatcherEvdev> dispatcher_;
 };
 
 }  // namespace ui

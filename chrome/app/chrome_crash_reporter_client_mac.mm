@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,14 @@
 #include "components/policy/policy_constants.h"
 #include "components/version_info/version_info.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 bool ChromeCrashReporterClient::ReportingIsEnforcedByPolicy(
     bool* breakpad_enabled) {
-  base::ScopedCFTypeRef<CFStringRef> key(
-      base::SysUTF8ToCFStringRef(policy::key::kMetricsReportingEnabled));
+  base::ScopedCFTypeRef<CFStringRef> key =
+      base::SysUTF8ToCFStringRef(policy::key::kMetricsReportingEnabled);
   Boolean key_valid;
   Boolean metrics_reporting_enabled = CFPreferencesGetAppBooleanValue(key,
       kCFPreferencesCurrentApplication, &key_valid);

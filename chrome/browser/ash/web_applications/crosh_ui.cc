@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,8 @@ bool CroshUIConfig::IsWebUIEnabled(content::BrowserContext* browser_context) {
 }
 
 std::unique_ptr<content::WebUIController> CroshUIConfig::CreateWebUIController(
-    content::WebUI* web_ui) {
+    content::WebUI* web_ui,
+    const GURL& url) {
   return std::make_unique<CroshUI>(web_ui);
 }
 

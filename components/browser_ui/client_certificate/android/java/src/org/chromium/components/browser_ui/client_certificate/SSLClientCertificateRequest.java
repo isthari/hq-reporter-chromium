@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.PostTask;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.ui.base.WindowAndroid;
 
 import java.security.Principal;
@@ -160,10 +160,10 @@ public class SSLClientCertificateRequest {
 
             // This is called by KeyChainActivity in a background thread. Post task to
             // handle the certificate selection on the UI thread.
-            PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+            PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
                 if (alias == null) {
                     // No certificate was selected.
-                    PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
+                    PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
                             ()
                                     -> SSLClientCertificateRequestJni.get()
                                                .onSystemRequestCompletion(mNativePtr, null, null));
@@ -230,7 +230,7 @@ public class SSLClientCertificateRequest {
          */
         public void show() {
             final AlertDialog.Builder builder =
-                    new AlertDialog.Builder(mContext, R.style.Theme_Chromium_AlertDialog);
+                    new AlertDialog.Builder(mContext, R.style.ThemeOverlay_BrowserUI_AlertDialog);
             builder.setTitle(R.string.client_cert_unsupported_title)
                     .setMessage(R.string.client_cert_unsupported_message)
                     .setNegativeButton(R.string.close,

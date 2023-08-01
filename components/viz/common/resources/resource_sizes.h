@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,13 +22,6 @@ namespace viz {
 class VIZ_RESOURCE_FORMAT_EXPORT ResourceSizes {
  public:
   // Returns true if the width is valid and fits in bytes, false otherwise.
-  template <typename T>
-  static bool VerifyWidthInBytes(int width, ResourceFormat format);
-  // Returns true if the size is valid and fits in bytes, false otherwise.
-  template <typename T>
-  static bool VerifySizeInBytes(const gfx::Size& size, ResourceFormat format);
-
-  // Returns true if the width is valid and fits in bytes, false otherwise.
   // Sets the bytes result in the out parameter |bytes|.
   template <typename T>
   static bool MaybeWidthInBytes(int width, ResourceFormat format, T* bytes);
@@ -47,7 +40,10 @@ class VIZ_RESOURCE_FORMAT_EXPORT ResourceSizes {
   // number of bytes.
   template <typename T>
   static T CheckedSizeInBytes(const gfx::Size& size, ResourceFormat format);
-
+  // WARNING: The `format` must be single planar.
+  // TODO(hitawala): Add multiplanar format support.
+  template <typename T>
+  static T CheckedSizeInBytes(const gfx::Size& size, SharedImageFormat format);
   // Returns the width in bytes but may overflow or return 0. Only do this for
   // computing widths for sizes that have already been checked.
   template <typename T>
@@ -108,23 +104,6 @@ class VIZ_RESOURCE_FORMAT_EXPORT ResourceSizes {
 };
 
 template <typename T>
-bool ResourceSizes::VerifyWidthInBytes(int width, ResourceFormat format) {
-  VerifyType<T>();
-  if (width <= 0)
-    return false;
-  return VerifyWidthInBytesInternal<T>(width, format, false);
-}
-
-template <typename T>
-bool ResourceSizes::VerifySizeInBytes(const gfx::Size& size,
-                                      ResourceFormat format) {
-  VerifyType<T>();
-  if (size.IsEmpty())
-    return false;
-  return VerifySizeInBytesInternal<T>(size, format, false);
-}
-
-template <typename T>
 bool ResourceSizes::MaybeWidthInBytes(int width,
                                       ResourceFormat format,
                                       T* bytes) {
@@ -161,6 +140,12 @@ T ResourceSizes::CheckedSizeInBytes(const gfx::Size& size,
   T bytes;
   CHECK(MaybeSizeInBytesInternal<T>(size, format, false, &bytes));
   return bytes;
+}
+
+template <typename T>
+T ResourceSizes::CheckedSizeInBytes(const gfx::Size& size,
+                                    SharedImageFormat format) {
+  return CheckedSizeInBytes<T>(size, format.resource_format());
 }
 
 template <typename T>

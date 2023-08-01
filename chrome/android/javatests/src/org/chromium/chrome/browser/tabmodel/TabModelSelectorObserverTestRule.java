@@ -1,10 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tabmodel;
 
-import android.support.test.InstrumentationRegistry;
+import androidx.test.core.app.ApplicationProvider;
 
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
@@ -70,11 +70,6 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
             public void requestToShowTab(Tab tab, int type) {}
 
             @Override
-            public boolean closeAllTabsRequest(boolean incognito) {
-                return false;
-            }
-
-            @Override
             public boolean isSessionRestoreInProgress() {
                 return false;
             }
@@ -88,7 +83,7 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
 
         TabModelOrderController orderController = new TabModelOrderControllerImpl(mSelector);
         TabContentManager tabContentManager = new TabContentManager(
-                InstrumentationRegistry.getTargetContext(), null, false, mSelector::getTabById);
+                ApplicationProvider.getApplicationContext(), null, false, mSelector::getTabById);
         tabContentManager.initWithNative();
         NextTabPolicySupplier nextTabPolicySupplier = () -> NextTabPolicy.HIERARCHICAL;
         AsyncTabParamsManager asyncTabParamsManager = AsyncTabParamsManagerSingleton.getInstance();
@@ -115,11 +110,6 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
             @Override
             public TabModel getCurrentModel() {
                 return mSelector.getCurrentModel();
-            }
-
-            @Override
-            public boolean closeAllTabsRequest(boolean incognito) {
-                return false;
             }
 
             @Override

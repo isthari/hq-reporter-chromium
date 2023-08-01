@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "components/favicon/android/jni_headers/LargeIconBridge_jni.h"
 #include "components/favicon/content/large_favicon_provider_getter.h"
 #include "components/favicon/core/core_favicon_service.h"
@@ -74,6 +74,7 @@ jboolean LargeIconBridge::GetLargeIconForURL(
     const JavaParamRef<jobject>& j_browser_context,
     const JavaParamRef<jobject>& j_page_url,
     jint min_source_size_px,
+    jint desired_source_size_px,
     const JavaParamRef<jobject>& j_callback) {
   content::BrowserContext* browser_context =
       content::BrowserContextFromJavaHandle(j_browser_context);
@@ -93,9 +94,8 @@ jboolean LargeIconBridge::GetLargeIconForURL(
   // Use desired_size = 0 for getting the icon from the cache (so that
   // the icon is not poorly rescaled by LargeIconService).
   LargeIconWorker::GetLargeIconRawBitmap(
-      favicon_provider, *url, min_source_size_px,
-      /*desired_size_in_pixel=*/0, std::move(callback_runner), {},
-      &cancelable_task_tracker_);
+      favicon_provider, *url, min_source_size_px, desired_source_size_px,
+      std::move(callback_runner), {}, &cancelable_task_tracker_);
 
   return true;
 }

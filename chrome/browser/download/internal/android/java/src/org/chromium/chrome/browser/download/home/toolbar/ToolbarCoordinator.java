@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,14 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.download.home.list.ListItem;
 import org.chromium.chrome.browser.download.home.metrics.UmaUtils;
 import org.chromium.chrome.browser.download.internal.R;
 import org.chromium.components.browser_ui.widget.FadingShadow;
 import org.chromium.components.browser_ui.widget.FadingShadowView;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectableListToolbar;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate.SelectionObserver;
@@ -26,7 +28,7 @@ import java.util.List;
 /**
  * A top level class to handle various toolbar related functionalities in download home.
  */
-public class ToolbarCoordinator implements SelectionObserver<ListItem> {
+public class ToolbarCoordinator implements SelectionObserver<ListItem>, BackPressHandler {
     /**
      * A delegate to handle various actions taken by user that relate to list items.
      */
@@ -72,6 +74,8 @@ public class ToolbarCoordinator implements SelectionObserver<ListItem> {
     private final ViewGroup mView;
     private final DownloadHomeToolbar mToolbar;
     private final FadingShadowView mShadow;
+    private final ObservableSupplierImpl<Boolean> mBackPressStateSupplier =
+            new ObservableSupplierImpl<>();
 
     private boolean mShowToolbarShadow;
 
@@ -111,11 +115,11 @@ public class ToolbarCoordinator implements SelectionObserver<ListItem> {
 
         ToolbarUtils.setupTrackerForDownloadSettingsIPH(tracker, mToolbar);
 
-        mShadow.init(ApiCompatibilityUtils.getColor(
-                             context.getResources(), R.color.toolbar_shadow_color),
-                FadingShadow.POSITION_TOP);
+        mShadow.init(context.getColor(R.color.toolbar_shadow_color), FadingShadow.POSITION_TOP);
 
         if (!hasCloseButton) mToolbar.removeMenuItem(R.id.close_menu_id);
+        mBackPressStateSupplier.set(mToolbar.isSearching());
+        mToolbar.isSearchingSupplier().addObserver(mBackPressStateSupplier::set);
     }
 
     /**
@@ -163,6 +167,18 @@ public class ToolbarCoordinator implements SelectionObserver<ListItem> {
         return false;
     }
 
+    @Override
+    public int handleBackPress() {
+        var ret = handleBackPressed();
+        assert ret;
+        return ret ? BackPressResult.SUCCESS : BackPressResult.FAILURE;
+    }
+
+    @Override
+    public ObservableSupplier<Boolean> getHandleBackPressChangedSupplier() {
+        return mBackPressStateSupplier;
+    }
+
     // SelectionObserver<ListItem> implementation.
     @Override
     public void onSelectionStateChange(List<ListItem> selectedItems) {
@@ -176,15 +192,13 @@ public class ToolbarCoordinator implements SelectionObserver<ListItem> {
             mDelegate.close();
             return true;
         } else if (item.getItemId() == R.id.selection_mode_delete_menu_id) {
-            int itemsDeleted = mListActionDelegate.deleteSelectedItems();
-            UmaUtils.recordTopMenuDeleteCount(itemsDeleted);
+            mListActionDelegate.deleteSelectedItems();
             return true;
         } else if (item.getItemId() == R.id.selection_mode_share_menu_id) {
-            int itemsShared = mListActionDelegate.shareSelectedItems();
-            UmaUtils.recordTopMenuShareCount(itemsShared);
+            mListActionDelegate.shareSelectedItems();
             return true;
         } else if (item.getItemId() == R.id.search_menu_id) {
-            mToolbar.showSearchView();
+            mToolbar.showSearchView(true);
             updateShadowVisibility();
             return true;
         } else if (item.getItemId() == R.id.settings_menu_id) {

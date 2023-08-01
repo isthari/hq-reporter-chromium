@@ -1,11 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/devtools/service_worker_devtools_agent_host.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "content/browser/devtools/devtools_renderer_channel.h"
 #include "content/browser/devtools/devtools_session.h"
@@ -26,6 +26,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/cookies/site_for_cookies.h"
+#include "services/network/public/mojom/client_security_state.mojom.h"
 #include "services/network/public/mojom/network_context.mojom-forward.h"
 
 namespace content {
@@ -149,8 +150,7 @@ ServiceWorkerDevToolsAgentHost::ServiceWorkerDevToolsAgentHost(
     const GURL& url,
     const GURL& scope,
     bool is_installed_version,
-    absl::optional<network::CrossOriginEmbedderPolicy>
-        cross_origin_embedder_policy,
+    network::mojom::ClientSecurityStatePtr client_security_state,
     mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
         coep_reporter,
     const base::UnguessableToken& devtools_worker_token)
@@ -168,7 +168,7 @@ ServiceWorkerDevToolsAgentHost::ServiceWorkerDevToolsAgentHost(
       scope_(scope),
       version_installed_time_(is_installed_version ? base::Time::Now()
                                                    : base::Time()),
-      cross_origin_embedder_policy_(std::move(cross_origin_embedder_policy)),
+      client_security_state_(std::move(client_security_state)),
       coep_reporter_(std::move(coep_reporter)) {
   UpdateProcessHost();
   NotifyCreated();
@@ -226,24 +226,24 @@ ServiceWorkerDevToolsAgentHost::~ServiceWorkerDevToolsAgentHost() {
 
 bool ServiceWorkerDevToolsAgentHost::AttachSession(DevToolsSession* session,
                                                    bool acquire_wake_lock) {
-  session->AddHandler(std::make_unique<protocol::IOHandler>(GetIOContext()));
-  session->AddHandler(std::make_unique<protocol::InspectorHandler>());
-  session->AddHandler(std::make_unique<protocol::NetworkHandler>(
+  session->CreateAndAddHandler<protocol::IOHandler>(GetIOContext());
+  session->CreateAndAddHandler<protocol::InspectorHandler>();
+  session->CreateAndAddHandler<protocol::NetworkHandler>(
       GetId(), devtools_worker_token_, GetIOContext(), base::DoNothing(),
-      session->GetClient()->MayReadLocalFiles()));
+      session->GetClient()->MayReadLocalFiles());
 
-  session->AddHandler(std::make_unique<protocol::FetchHandler>(
+  session->CreateAndAddHandler<protocol::FetchHandler>(
       GetIOContext(),
       base::BindRepeating(
           &ServiceWorkerDevToolsAgentHost::UpdateLoaderFactories,
-          base::Unretained(this))));
-  session->AddHandler(std::make_unique<protocol::SchemaHandler>());
+          base::Unretained(this)));
+  session->CreateAndAddHandler<protocol::SchemaHandler>();
 
-  auto target_handler = std::make_unique<protocol::TargetHandler>(
+  auto* target_handler = session->CreateAndAddHandler<protocol::TargetHandler>(
       protocol::TargetHandler::AccessMode::kAutoAttachOnly, GetId(),
-      auto_attacher_.get(), session->GetRootSession());
+      auto_attacher_.get(), session);
+  DCHECK(target_handler);
   target_handler->DisableAutoAttachOfServiceWorkers();
-  session->AddHandler(std::move(target_handler));
 
   if (state_ == WORKER_READY && sessions().empty())
     UpdateIsAttached(true);
@@ -273,11 +273,12 @@ void ServiceWorkerDevToolsAgentHost::WorkerReadyForInspection(
     UpdateIsAttached(true);
 }
 
-void ServiceWorkerDevToolsAgentHost::UpdateCrossOriginEmbedderPolicy(
-    network::CrossOriginEmbedderPolicy cross_origin_embedder_policy,
+void ServiceWorkerDevToolsAgentHost::UpdateClientSecurityState(
+    network::mojom::ClientSecurityStatePtr client_security_state,
     mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
         coep_reporter) {
-  cross_origin_embedder_policy_ = std::move(cross_origin_embedder_policy);
+  DCHECK(client_security_state);
+  client_security_state_ = std::move(client_security_state);
   coep_reporter_.Bind(std::move(coep_reporter));
 }
 
@@ -293,6 +294,8 @@ void ServiceWorkerDevToolsAgentHost::WorkerStarted(int worker_process_id,
 void ServiceWorkerDevToolsAgentHost::WorkerStopped() {
   DCHECK_NE(WORKER_TERMINATED, state_);
   state_ = WORKER_TERMINATED;
+  worker_process_id_ = content::ChildProcessHost::kInvalidUniqueID;
+  worker_route_id_ = MSG_ROUTING_NONE;
   for (auto* inspector : protocol::InspectorHandler::ForAgentHost(this))
     inspector->TargetCrashed();
   GetRendererChannel()->SetRenderer(mojo::NullRemote(), mojo::NullReceiver(),
@@ -315,14 +318,11 @@ void ServiceWorkerDevToolsAgentHost::UpdateProcessHost() {
     process_observation_.Observe(rph);
 }
 
-// TODO(caseq): this is only relevant for shutdown, where a RPH may
-// go along with StoragePartition and we won't receive any signals from
-// the DevToolsWorkerManager, so agents would be still attached and
-// may access the storage partition. This is meant to be a temporary
-// workaround, the proper fix is likely to have ServiceWorkerInstance
-// deleted in such case.
 void ServiceWorkerDevToolsAgentHost::RenderProcessHostDestroyed(
     RenderProcessHost* host) {
+  scoped_refptr<DevToolsAgentHost> retain_this;
+  if (context_wrapper_->process_manager()->IsShutdown())
+    retain_this = ForceDetachAllSessionsImpl();
   GetRendererChannel()->SetRenderer(mojo::NullRemote(), mojo::NullReceiver(),
                                     ChildProcessHost::kInvalidUniqueID);
   process_observation_.Reset();
@@ -330,12 +330,19 @@ void ServiceWorkerDevToolsAgentHost::RenderProcessHostDestroyed(
 
 void ServiceWorkerDevToolsAgentHost::UpdateLoaderFactories(
     base::OnceClosure callback) {
+  if (state_ == WORKER_TERMINATED) {
+    std::move(callback).Run();
+    return;
+  }
   RenderProcessHost* rph = RenderProcessHost::FromID(worker_process_id_);
   if (!rph) {
     std::move(callback).Run();
     return;
   }
   const url::Origin origin = url::Origin::Create(url_);
+
+  // There should never be a COEP reporter without a client security state.
+  DCHECK(!coep_reporter_ || client_security_state_);
 
   mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
       coep_reporter_for_script_loader;
@@ -347,28 +354,24 @@ void ServiceWorkerDevToolsAgentHost::UpdateLoaderFactories(
     coep_reporter_->Clone(
         coep_reporter_for_subresource_loader.InitWithNewPipeAndPassReceiver());
   }
-  // Use the default CrossOriginEmbedderPolicy if
-  // |cross_origin_embedder_policy_| is nullopt. It's acceptable because the
-  // factory bundles are updated with correct COEP value before any subresource
-  // requests in that case.
+
+  auto* version = context_wrapper_->GetLiveVersion(version_id_);
+  if (!version) {
+    std::move(callback).Run();
+    return;
+  }
+
   auto script_bundle = EmbeddedWorkerInstance::CreateFactoryBundle(
-      rph, worker_route_id_, origin,
-      cross_origin_embedder_policy_ ? cross_origin_embedder_policy_.value()
-                                    : network::CrossOriginEmbedderPolicy(),
+      rph, worker_route_id_, version->key(), client_security_state_.Clone(),
       std::move(coep_reporter_for_script_loader),
       ContentBrowserClient::URLLoaderFactoryType::kServiceWorkerScript,
       GetId());
   auto subresource_bundle = EmbeddedWorkerInstance::CreateFactoryBundle(
-      rph, worker_route_id_, origin,
-      cross_origin_embedder_policy_ ? cross_origin_embedder_policy_.value()
-                                    : network::CrossOriginEmbedderPolicy(),
+      rph, worker_route_id_, version->key(), client_security_state_.Clone(),
       std::move(coep_reporter_for_subresource_loader),
       ContentBrowserClient::URLLoaderFactoryType::kServiceWorkerSubResource,
       GetId());
 
-  auto* version = context_wrapper_->GetLiveVersion(version_id_);
-  if (!version)
-    return;
   version->embedded_worker()->UpdateLoaderFactories(
       std::move(script_bundle), std::move(subresource_bundle));
 
@@ -379,13 +382,11 @@ DevToolsAgentHostImpl::NetworkLoaderFactoryParamsAndInfo
 ServiceWorkerDevToolsAgentHost::CreateNetworkFactoryParamsForDevTools() {
   RenderProcessHost* rph = RenderProcessHost::FromID(worker_process_id_);
   const url::Origin origin = url::Origin::Create(url_);
+  const auto* version = context_wrapper_->GetLiveVersion(version_id_);
   // TODO(crbug.com/1231019): make sure client_security_state is no longer
   // nullptr anywhere.
   auto factory = URLLoaderFactoryParamsHelper::CreateForWorker(
-      rph, origin,
-      net::IsolationInfo::Create(net::IsolationInfo::RequestType::kOther,
-                                 origin, origin,
-                                 net::SiteForCookies::FromOrigin(origin)),
+      rph, origin, version->key().ToPartialNetIsolationInfo(),
       /*coep_reporter=*/mojo::NullRemote(),
       static_cast<StoragePartitionImpl*>(rph->GetStoragePartition())
           ->CreateAuthCertObserverForServiceWorker(),
@@ -403,7 +404,10 @@ RenderProcessHost* ServiceWorkerDevToolsAgentHost::GetProcessHost() {
 absl::optional<network::CrossOriginEmbedderPolicy>
 ServiceWorkerDevToolsAgentHost::cross_origin_embedder_policy(
     const std::string&) {
-  return cross_origin_embedder_policy_;
+  if (!client_security_state_) {
+    return absl::nullopt;
+  }
+  return client_security_state_->cross_origin_embedder_policy;
 }
 
 void ServiceWorkerDevToolsAgentHost::set_should_pause_on_start(

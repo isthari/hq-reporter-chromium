@@ -1,14 +1,14 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import <MobileCoreServices/MobileCoreServices.h>
-
 #import "ios/chrome/share_extension/share_view_controller.h"
+
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #import "base/ios/block_types.h"
 #import "base/mac/foundation_util.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/strings/sys_string_conversions.h"
 #import "ios/chrome/common/app_group/app_group_command.h"
 #import "ios/chrome/common/app_group/app_group_constants.h"
 #import "ios/chrome/common/crash_report/crash_helper.h"
@@ -20,7 +20,7 @@
 #endif
 
 // Type for completion handler to fetch the components of the share items.
-// |idResponse| type depends on the element beeing fetched.
+// `idResponse` type depends on the element beeing fetched.
 using ItemBlock = void (^)(id idResponse, NSError* error);
 
 namespace {
@@ -51,9 +51,9 @@ const CGFloat kMediumAlpha = 0.5;
 @property(nonatomic, weak) ShareExtensionView* shareView;
 @property(nonatomic, assign) app_group::ShareExtensionItemType itemType;
 
-// Creates a files in |app_group::ShareExtensionItemsFolder()| containing a
+// Creates a files in `app_group::ShareExtensionItemsFolder()` containing a
 // serialized NSDictionary.
-// If |cancel| is true, |actionType| is ignored.
+// If `cancel` is true, `actionType` is ignored.
 - (void)queueActionItemURL:(NSURL*)URL
                      title:(NSString*)title
                     action:(app_group::ShareExtensionItemType)actionType
@@ -84,9 +84,7 @@ const CGFloat kMediumAlpha = 0.5;
 
 + (void)initialize {
   if (self == [ShareViewController self]) {
-    if (crash_helper::common::CanUseCrashpad()) {
-      crash_helper::common::StartCrashpad();
-    }
+    crash_helper::common::StartCrashpad();
   }
 }
 
@@ -213,7 +211,7 @@ const CGFloat kMediumAlpha = 0.5;
                                                       views:views]];
   }
 
-  // |self.shareView| must be as large as possible and in the center of the
+  // `self.shareView` must be as large as possible and in the center of the
   // screen.
   [self.shareView
       setContentCompressionResistancePriority:UILayoutPriorityDefaultHigh
@@ -221,7 +219,7 @@ const CGFloat kMediumAlpha = 0.5;
 }
 
 - (void)loadElementsFromContext {
-  NSString* typeURL = (__bridge NSString*)(kUTTypeURL);
+  NSString* typeURL = UTTypeURL.identifier;
   for (NSExtensionItem* item in self.extensionContext.inputItems) {
     for (NSItemProvider* itemProvider in item.attachments) {
       if ([itemProvider hasItemConformingToTypeIdentifier:typeURL]) {

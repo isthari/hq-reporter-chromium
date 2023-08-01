@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,15 +31,16 @@ const char kAdsInterventionRecordedHistogram[] =
 
 }  // namespace
 
-class OverlayPopupAdViolationBrowserTest : public SubresourceFilterBrowserTest {
+class WebLayerOverlayPopupAdViolationBrowserTest
+    : public SubresourceFilterBrowserTest {
  public:
-  OverlayPopupAdViolationBrowserTest() = default;
+  WebLayerOverlayPopupAdViolationBrowserTest() = default;
 
   void SetUp() override {
-    std::vector<base::Feature> enabled = {
+    std::vector<base::test::FeatureRef> enabled = {
         subresource_filter::kAdTagging,
         subresource_filter::kAdsInterventionsEnforced};
-    std::vector<base::Feature> disabled = {
+    std::vector<base::test::FeatureRef> disabled = {
         blink::features::kFrequencyCappingForOverlayPopupDetection};
 
     feature_list_.InitWithFeatures(enabled, disabled);
@@ -56,8 +57,16 @@ class OverlayPopupAdViolationBrowserTest : public SubresourceFilterBrowserTest {
   base::test::ScopedFeatureList feature_list_;
 };
 
-IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTest,
-                       NoOverlayPopupAd_AdInterventionNotTriggered) {
+// TODO(https://crbug.com/1199860): Fails on Linux MSan.
+#if BUILDFLAG(IS_LINUX) && defined(MEMORY_SANITIZER)
+#define MAYBE_NoOverlayPopupAd_AdInterventionNotTriggered_WL \
+  DISABLED_NoOverlayPopupAd_AdInterventionNotTriggered_WL
+#else
+#define MAYBE_NoOverlayPopupAd_AdInterventionNotTriggered_WL \
+  NoOverlayPopupAd_AdInterventionNotTriggered_WL
+#endif
+IN_PROC_BROWSER_TEST_F(WebLayerOverlayPopupAdViolationBrowserTest,
+                       MAYBE_NoOverlayPopupAd_AdInterventionNotTriggered_WL) {
   base::HistogramTester histogram_tester;
 
   GURL url = embedded_test_server()->GetURL(
@@ -70,7 +79,8 @@ IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTest,
   // ad script is loaded and that the subresource filter UI doesn't show up.
   EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
 
-  EXPECT_TRUE(WasParsedScriptElementLoaded(web_contents()->GetMainFrame()));
+  EXPECT_TRUE(
+      WasParsedScriptElementLoaded(web_contents()->GetPrimaryMainFrame()));
   histogram_tester.ExpectBucketCount(
       "SubresourceFilter.Actions2",
       subresource_filter::SubresourceFilterAction::kUIShown, 0);
@@ -79,16 +89,16 @@ IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTest,
       subresource_filter::mojom::AdsViolation::kOverlayPopupAd, 0);
 }
 
-// TODO(https://crbug.com/1287783): Fails on the linux and android.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_ANDROID)
-#define MAYBE_OverlayPopupAd_AdInterventionTriggered \
-  DISABLED_OverlayPopupAd_AdInterventionTriggered
+// TODO(https://crbug.com/1287783): Fails on linux, android and chromeos.
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS)
+#define MAYBE_OverlayPopupAd_AdInterventionTriggered_WL \
+  DISABLED_OverlayPopupAd_AdInterventionTriggered_WL
 #else
-#define MAYBE_OverlayPopupAd_AdInterventionTriggered \
-  OverlayPopupAd_AdInterventionTriggered
+#define MAYBE_OverlayPopupAd_AdInterventionTriggered_WL \
+  OverlayPopupAd_AdInterventionTriggered_WL
 #endif
-IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTest,
-                       MAYBE_OverlayPopupAd_AdInterventionTriggered) {
+IN_PROC_BROWSER_TEST_F(WebLayerOverlayPopupAdViolationBrowserTest,
+                       MAYBE_OverlayPopupAd_AdInterventionTriggered_WL) {
   base::HistogramTester histogram_tester;
 
   GURL url = embedded_test_server()->GetURL(
@@ -104,7 +114,8 @@ IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTest,
   // shows up.
   EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
 
-  EXPECT_FALSE(WasParsedScriptElementLoaded(web_contents()->GetMainFrame()));
+  EXPECT_FALSE(
+      WasParsedScriptElementLoaded(web_contents()->GetPrimaryMainFrame()));
   histogram_tester.ExpectBucketCount(
       "SubresourceFilter.Actions2",
       subresource_filter::SubresourceFilterAction::kUIShown, 1);
@@ -113,14 +124,15 @@ IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTest,
       subresource_filter::mojom::AdsViolation::kOverlayPopupAd, 1);
 }
 
-class OverlayPopupAdViolationBrowserTestWithoutEnforcement
-    : public OverlayPopupAdViolationBrowserTest {
+class WebLayerOverlayPopupAdViolationBrowserTestWithoutEnforcement
+    : public WebLayerOverlayPopupAdViolationBrowserTest {
  public:
-  OverlayPopupAdViolationBrowserTestWithoutEnforcement() = default;
+  WebLayerOverlayPopupAdViolationBrowserTestWithoutEnforcement() = default;
 
   void SetUp() override {
-    std::vector<base::Feature> enabled = {subresource_filter::kAdTagging};
-    std::vector<base::Feature> disabled = {
+    std::vector<base::test::FeatureRef> enabled = {
+        subresource_filter::kAdTagging};
+    std::vector<base::test::FeatureRef> disabled = {
         subresource_filter::kAdsInterventionsEnforced,
         blink::features::kFrequencyCappingForOverlayPopupDetection};
 
@@ -132,8 +144,10 @@ class OverlayPopupAdViolationBrowserTestWithoutEnforcement
   base::test::ScopedFeatureList feature_list_;
 };
 
-IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTestWithoutEnforcement,
-                       OverlayPopupAd_NoAdInterventionTriggered) {
+// TODO(https://crbug.com/1344280): Test is flaky.
+IN_PROC_BROWSER_TEST_F(
+    WebLayerOverlayPopupAdViolationBrowserTestWithoutEnforcement,
+    DISABLED_OverlayPopupAd_NoAdInterventionTriggered_WL) {
   base::HistogramTester histogram_tester;
 
   GURL url = embedded_test_server()->GetURL(
@@ -150,7 +164,8 @@ IN_PROC_BROWSER_TEST_F(OverlayPopupAdViolationBrowserTestWithoutEnforcement,
   // running in dry run mode.
   EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
 
-  EXPECT_TRUE(WasParsedScriptElementLoaded(web_contents()->GetMainFrame()));
+  EXPECT_TRUE(
+      WasParsedScriptElementLoaded(web_contents()->GetPrimaryMainFrame()));
   histogram_tester.ExpectBucketCount(
       "SubresourceFilter.Actions2",
       subresource_filter::SubresourceFilterAction::kUIShown, 0);

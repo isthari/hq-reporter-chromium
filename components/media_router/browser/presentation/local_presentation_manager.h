@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ namespace media_router {
 //
 //   manager->RegisterLocalPresentationController(
 //       presentation_info,
-//       std::move(controller_connection_remote,
+//       std::move(controller_connection_remote),
 //       std::move(receiver_connection_receiver));
 //
 // Invoked on receiver's PresentationServiceImpl when controller connection is

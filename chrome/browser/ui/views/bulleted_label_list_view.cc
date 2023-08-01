@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/table_layout.h"
@@ -34,8 +35,8 @@ void BulletView::OnPaint(gfx::Canvas* canvas) {
 
   cc::PaintFlags flags;
   flags.setStyle(cc::PaintFlags::kFill_Style);
-  flags.setColor(views::style::GetColor(*this, views::style::CONTEXT_LABEL,
-                                        views::style::STYLE_PRIMARY));
+  flags.setColor(GetColorProvider()->GetColor(views::style::GetColorId(
+      views::style::CONTEXT_LABEL, views::style::STYLE_PRIMARY)));
   flags.setAntiAlias(true);
 
   canvas->DrawPath(path, flags);
@@ -71,7 +72,7 @@ BulletedLabelListView::~BulletedLabelListView() = default;
 void BulletedLabelListView::AddLabel(const std::u16string& text) {
   views::TableLayout* layout =
       static_cast<views::TableLayout*>(GetLayoutManager());
-  layout->AddRows(1, views::GridLayout::kFixedSize);
+  layout->AddRows(1, views::TableLayout::kFixedSize);
 
   AddChildView(std::make_unique<BulletView>());
   auto* label = AddChildView(std::make_unique<views::Label>(text));

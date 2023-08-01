@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "chromeos/components/sharesheet/constants.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/widget/widget.h"
@@ -16,13 +17,6 @@ namespace sharesheet {
 
 // In DIP (Density Independent Pixel).
 constexpr int kIconSize = 40;
-
-enum class SharesheetResult {
-  kSuccess,            // Successfully passed data to selected target.
-  kCancel,             // Share was cancelled before completion.
-  kErrorAlreadyOpen,   // Share failed because the sharesheet is already open.
-  kErrorWindowClosed,  // Parent window closed before sharesheet could be shown.
-};
 
 // The type of a target.
 enum class TargetType {
@@ -38,7 +32,8 @@ struct TargetInfo {
              const std::u16string& launch_name,
              const std::u16string& display_name,
              const absl::optional<std::u16string>& secondary_display_name,
-             const absl::optional<std::string>& activity_name);
+             const absl::optional<std::string>& activity_name,
+             bool is_dlp_blocked);
   ~TargetInfo();
 
   // Allow move.
@@ -73,6 +68,9 @@ struct TargetInfo {
   // The activity of the app for the target. This only applies when the app type
   // is kArc.
   absl::optional<std::string> activity_name;
+
+  // Whether the target is blocked by Data Leak Prevention (DLP).
+  bool is_dlp_blocked;
 };
 
 using DeliveredCallback = base::OnceCallback<void(SharesheetResult success)>;

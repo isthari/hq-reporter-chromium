@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
@@ -24,8 +24,50 @@
 namespace ash {
 namespace enhanced_network_tts {
 
-constexpr base::Feature EnhancedNetworkTtsImpl::kOverrideParams;
+BASE_FEATURE(kEnhancedNetworkTtsOverride,
+             "EnhancedNetworkTtsOverride",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
 constexpr base::FeatureParam<std::string> EnhancedNetworkTtsImpl::kApiKey;
+
+const net::NetworkTrafficAnnotationTag traffic_annotation =
+    net::DefineNetworkTrafficAnnotation("enhanced_network_tts", R"(
+    semantics {
+      sender: "Enhanced Network TTS"
+      description:
+        "This is the middle layer of a text-to-speech engine implemented using the "
+        "chrome.ttsEngine extension api. "
+        "It takes extension api requests from the api to speak a string, sends a "
+        "network request to a network endpoint, and replies with audio samples and "
+        "related metadata. "
+        "It is only used by Select to Speak in Chrome OS."
+      trigger: "Turn on Select-to-speak from settings. "
+        "Use search +s or hold search and click some text to get it to start. "
+        "Accept the dialog about natural voices, and/or go to Select-to-speak to enable them."
+      user_data {
+        type: WEB_CONTENT
+      }
+      data: "1. Google API Key."
+            "2. Text piece to be converted to speech."
+            "3. Voice to be used for the speech."
+            "4. Language of the speech."
+            "5. Rate of the speech."
+      destination: GOOGLE_OWNED_SERVICE
+      internal {
+        contacts {
+          email: "chrome-a11y-core@google.com"
+        }
+      }
+      last_reviewed: "2023-04-05"
+    }
+    policy {
+      cookies_allowed: NO
+      setting:
+        "Users can disable the text-to-speech with enhanced voices feature on "
+        "the Select-to-Speak subpage of the Accessibility settings. This "
+        "setting is disabled by default."
+      policy_exception_justification: "Not implemented."
+    })");
 
 EnhancedNetworkTtsImpl::ServerRequest::ServerRequest(
     std::unique_ptr<network::SimpleURLLoader> url_loader,
@@ -143,7 +185,7 @@ EnhancedNetworkTtsImpl::MakeRequestLoader() {
   }
 
   return network::SimpleURLLoader::Create(std::move(resource_request),
-                                          MISSING_TRAFFIC_ANNOTATION);
+                                          traffic_annotation);
 }
 
 void EnhancedNetworkTtsImpl::ProcessNextServerRequest() {
@@ -196,16 +238,18 @@ void EnhancedNetworkTtsImpl::OnResponseJsonParsed(
     const bool is_last_request,
     data_decoder::DataDecoder::ValueOrError result) {
   // Extract results for the request.
-  if (result.value) {
+  if (result.has_value() && result->is_list()) {
     SendResponse(
-        UnpackJsonResponse(*result.value, start_index, is_last_request));
+        UnpackJsonResponse(result->GetList(), start_index, is_last_request));
     // Only start the next request after finishing the current one. This method
     // will also reset the internal state if there is no more request.
     ProcessNextServerRequest();
   } else {
     ResetAndSendErrorResponse(mojom::TtsRequestError::kReceivedUnexpectedData);
     DVLOG(1) << "Parsing server response JSON failed with error: "
-             << result.error.value_or("No reason reported.");
+             << (!result.has_value() || result.error().empty()
+                     ? "No reason reported."
+                     : result.error());
   }
 }
 

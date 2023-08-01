@@ -1,15 +1,18 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_REMOTE_COCOA_APP_SHIM_VIEWS_NSWINDOW_DELEGATE_H_
 #define COMPONENTS_REMOTE_COCOA_APP_SHIM_VIEWS_NSWINDOW_DELEGATE_H_
 
+#include "base/memory/raw_ptr.h"
+
 #import <Cocoa/Cocoa.h>
 
 #import "base/mac/scoped_nsobject.h"
 #include "components/remote_cocoa/app_shim/remote_cocoa_app_shim_export.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace remote_cocoa {
 class NativeWidgetNSWindowBridge;
@@ -20,9 +23,11 @@ class NativeWidgetNSWindowBridge;
 REMOTE_COCOA_APP_SHIM_EXPORT
 @interface ViewsNSWindowDelegate : NSObject <NSWindowDelegate> {
  @private
-  remote_cocoa::NativeWidgetNSWindowBridge* _parent;  // Weak. Owns this.
+  raw_ptr<remote_cocoa::NativeWidgetNSWindowBridge, DanglingUntriaged>
+      _parent;  // Weak. Owns this.
   base::scoped_nsobject<NSCursor> _cursor;
   absl::optional<float> _aspectRatio;
+  gfx::Size _excludedMargin;
 
   // Only valid during a live resize.
   // Used to keep track of whether a resize is happening horizontally or
@@ -66,7 +71,8 @@ REMOTE_COCOA_APP_SHIM_EXPORT
 // but its implementation prioritizes the aspect ratio over the minimum size:
 // one of the dimensions can go below the minimum size if that's what it takes
 // to maintain the aspect ratio. This is inacceptable for us.
-- (void)setAspectRatio:(float)aspectRatio;
+- (void)setAspectRatio:(float)aspectRatio
+        excludedMargin:(const gfx::Size&)excludedMargin;
 
 @end
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,7 @@
 #include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/test_event_router_observer.h"
+#include "extensions/common/api/extension_action/action_info.h"
 #include "extensions/common/api/extension_action/action_info_test_util.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_constants.h"
@@ -148,15 +149,15 @@ void SetActionVisibleOnTab(Profile* profile,
   ASSERT_TRUE(extension_action);
   EXPECT_FALSE(extension_action->GetIsVisible(tab_id));
 
-  constexpr char kScriptTemplate[] =
+  static constexpr char kScriptTemplate[] =
       R"(chrome.pageAction.show(%d, () => {
-           domAutomationController.send(
+           chrome.test.sendScriptResult(
                chrome.runtime.lastError ?
                    chrome.runtime.lastError.message :
                    'success');
          });)";
 
-  std::string set_result = browsertest_util::ExecuteScriptInBackgroundPage(
+  base::Value set_result = browsertest_util::ExecuteScriptInBackgroundPage(
       profile, extension.id(), base::StringPrintf(kScriptTemplate, tab_id));
   EXPECT_EQ("success", set_result);
   EXPECT_TRUE(extension_action->GetIsVisible(tab_id));
@@ -170,8 +171,7 @@ void SendKeyPressToAction(Browser* browser,
                           ui::KeyboardCode keyboard_code,
                           const char* event_name,
                           bool expect_dispatch) {
-  ExtensionTestMessageListener click_listener("clicked",
-                                              false);  // Won't reply.
+  ExtensionTestMessageListener click_listener("clicked");
   click_listener.set_extension_id(extension.id());
 
   Profile* profile = browser->profile();
@@ -195,13 +195,13 @@ void SendKeyPressToAction(Browser* browser,
   // rather than using WaitUntilSatisfied(), which in turn allows this method
   // to exercise both the case of expecting dispatch and expecting *not* to
   // dispatch.
-  constexpr char kScript[] =
+  static constexpr char kScript[] =
       R"(chrome.test.sendMessage(
              'run loop hack',
              () => {
-               domAutomationController.send('success');
+               chrome.test.sendScriptResult('success');
              });)";
-  std::string set_result = browsertest_util::ExecuteScriptInBackgroundPage(
+  base::Value set_result = browsertest_util::ExecuteScriptInBackgroundPage(
       profile, extension.id(), kScript);
   EXPECT_EQ("success", set_result);
   EXPECT_EQ(expect_dispatch, click_listener.was_satisfied());
@@ -328,7 +328,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, Basic) {
 
   EXPECT_FALSE(IsGrantedForTab(extension, tab));
 
-  ExtensionTestMessageListener test_listener(false);  // Won't reply.
+  ExtensionTestMessageListener test_listener;  // Won't reply.
   // Activate the browser action shortcut (Ctrl+Shift+F).
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
       browser(), ui::VKEY_F, true, true, false, false));
@@ -411,6 +411,26 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, PageActionKeyUpdated) {
                        "pageAction.onClicked", expect_dispatch);
 }
 
+// Verify that keyboard shortcut takes effect without reloading the extension.
+// Regression test for https://crbug.com/1190476.
+IN_PROC_BROWSER_TEST_F(CommandsApiTest, ActionKeyUpdated) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  ASSERT_TRUE(RunExtensionTest("keybinding/action")) << message_;
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension) << message_;
+
+  // Simulate the user changing the keybinding.
+  CommandService* command_service = CommandService::Get(browser()->profile());
+  command_service->UpdateKeybindingPrefs(
+      extension->id(), manifest_values::kActionCommandEvent, "Ctrl+Shift+Y");
+
+  // Verify that the action event occurs for the new keyboard shortcut.
+  ResultCatcher catcher;
+  ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_Y, true, true,
+                                              false, false));
+  ASSERT_TRUE(catcher.GetNextResult());
+}
+
 IN_PROC_BROWSER_TEST_F(CommandsApiTest, PageActionOverrideChromeShortcut) {
   ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_TRUE(RunExtensionTest("keybinding/page_action")) << message_;
@@ -433,7 +453,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, PageActionOverrideChromeShortcut) {
   SetActionVisibleOnTab(profile(), *extension, tab_id);
   ASSERT_TRUE(WaitForPageActionVisibilityChangeTo(1));
 
-  ExtensionTestMessageListener test_listener(false);  // Won't reply.
+  ExtensionTestMessageListener test_listener;  // Won't reply.
   test_listener.set_extension_id(extension->id());
 
   // Note: The following incantation uses too many custom bits to comfortably
@@ -482,7 +502,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, DontOverwriteSystemShortcuts) {
       browser(), embedded_test_server()->GetURL("/extensions/test_file.txt")));
 
   // Activate the regular shortcut (Alt+Shift+F).
-  ExtensionTestMessageListener alt_shift_f_listener("alt_shift_f", false);
+  ExtensionTestMessageListener alt_shift_f_listener("alt_shift_f");
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
       browser(), ui::VKEY_F, false, true, true, false));
   EXPECT_TRUE(alt_shift_f_listener.WaitUntilSatisfied());
@@ -493,7 +513,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, DontOverwriteSystemShortcuts) {
   // and listening for both. If, by the time we receive the Alt+Shift+F
   // response, we haven't received a response for Ctrl+F, it is safe to say we
   // won't receive one.
-  ExtensionTestMessageListener ctrl_f_listener("ctrl_f", false);
+  ExtensionTestMessageListener ctrl_f_listener("ctrl_f");
   alt_shift_f_listener.Reset();
   // Send Ctrl+F.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_F, true,
@@ -528,7 +548,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
       browser(), embedded_test_server()->GetURL(
                      "/extensions/test_file_with_ctrl-d_keybinding.html")));
 
-  ExtensionTestMessageListener test_listener(false);  // Won't reply.
+  ExtensionTestMessageListener test_listener;
   // Activate the shortcut (Ctrl+D) which should be handled by the extension.
   ASSERT_TRUE(SendBookmarkKeyPressSync(browser()));
   EXPECT_TRUE(test_listener.WaitUntilSatisfied());
@@ -586,7 +606,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, ShortcutAddedOnUpdate) {
   // Install v1 of the extension without keybinding assigned.
   ASSERT_TRUE(InstallExtension(path_v1_unassigned, 1));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it is set to nothing.
   ui::Accelerator accelerator = command_service->FindCommandByName(
@@ -596,7 +616,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, ShortcutAddedOnUpdate) {
   // Update to version 2 with keybinding.
   EXPECT_TRUE(UpdateExtension(kId, path_v2, 0));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+F.
   accelerator = command_service->FindCommandByName(
@@ -632,7 +652,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, ShortcutChangedOnUpdate) {
   // Install v1 of the extension.
   ASSERT_TRUE(InstallExtension(path_v1, 1));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+F.
   ui::Accelerator accelerator = command_service->FindCommandByName(
@@ -645,7 +665,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, ShortcutChangedOnUpdate) {
   // Update to version 2 with different keybinding assigned.
   EXPECT_TRUE(UpdateExtension(kId, path_v2_reassigned, 0));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+J.
   accelerator = command_service->FindCommandByName(
@@ -681,7 +701,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, ShortcutRemovedOnUpdate) {
   // Install v1 of the extension.
   ASSERT_TRUE(InstallExtension(path_v1, 1));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+F.
   ui::Accelerator accelerator = command_service->FindCommandByName(
@@ -694,7 +714,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, ShortcutRemovedOnUpdate) {
   // Update to version 2 without keybinding assigned.
   EXPECT_TRUE(UpdateExtension(kId, path_v2_unassigned, 0));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify the keybinding gets set to nothing.
   accelerator = command_service->FindCommandByName(
@@ -728,7 +748,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Install v1 of the extension without keybinding assigned.
   ASSERT_TRUE(InstallExtension(path_v1_unassigned, 1));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it is set to nothing.
   ui::Accelerator accelerator = command_service->FindCommandByName(
@@ -742,7 +762,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Update to version 2 with keybinding.
   EXPECT_TRUE(UpdateExtension(kId, path_v2, 0));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify the previously-set keybinding is still set.
   accelerator = command_service->FindCommandByName(
@@ -779,7 +799,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Install v1 of the extension.
   ASSERT_TRUE(InstallExtension(path_v1, 1));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+F.
   ui::Accelerator accelerator = command_service->FindCommandByName(
@@ -796,7 +816,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Update to version 2 with different keybinding assigned.
   EXPECT_TRUE(UpdateExtension(kId, path_v2_reassigned, 0));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+G.
   accelerator = command_service->FindCommandByName(
@@ -834,7 +854,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Install v1 of the extension.
   ASSERT_TRUE(InstallExtension(path_v1, 1));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of MediaPlayPause.
   ui::Accelerator accelerator = command_service->FindCommandByName(
@@ -851,7 +871,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Update to version 2 with different keybinding assigned.
   EXPECT_TRUE(UpdateExtension(kId, path_v2_reassigned, 0));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+G.
   accelerator = command_service->FindCommandByName(
@@ -888,7 +908,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Install v1 of the extension.
   ASSERT_TRUE(InstallExtension(path_v1, 1));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify it has a command of Alt+Shift+F.
   ui::Accelerator accelerator = command_service->FindCommandByName(
@@ -905,7 +925,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
   // Update to version 2 without keybinding assigned.
   EXPECT_TRUE(UpdateExtension(kId, path_v2_unassigned, 0));
   EXPECT_TRUE(registry->GetExtensionById(kId, ExtensionRegistry::ENABLED) !=
-              NULL);
+              nullptr);
 
   // Verify the keybinding is still set.
   accelerator = command_service->FindCommandByName(
@@ -955,7 +975,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, MAYBE_ContinuePropagation) {
 }
 
 // Test is only applicable on Chrome OS.
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(CommandsApiTest, ChromeOSConversions) {
   ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
@@ -977,7 +997,7 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest, ChromeOSConversions) {
 
   ASSERT_TRUE(catcher.GetNextResult());
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 // Make sure component extensions retain keybindings after removal then
 // re-adding.
@@ -1100,12 +1120,13 @@ IN_PROC_BROWSER_TEST_P(ActionCommandsApiTest,
   test_dir.WriteManifest(base::StringPrintf(
       kManifestTemplate, GetManifestVersionForActionType(action_type),
       GetCommandKeyForActionType(action_type),
-      GetManifestKeyForActionType(action_type), background_specification));
+      ActionInfo::GetManifestKeyForActionType(action_type),
+      background_specification));
   test_dir.WriteFile(FILE_PATH_LITERAL("background.js"),
                      base::StringPrintf(kBackgroundScriptTemplate,
                                         GetAPINameForActionType(action_type)));
 
-  ExtensionTestMessageListener listener("ready", /*will_reply=*/false);
+  ExtensionTestMessageListener listener("ready");
   const Extension* extension = LoadExtension(test_dir.UnpackedPath());
   ASSERT_TRUE(extension);
   ASSERT_TRUE(listener.WaitUntilSatisfied());
@@ -1119,10 +1140,66 @@ IN_PROC_BROWSER_TEST_P(ActionCommandsApiTest,
     ASSERT_TRUE(WaitForPageActionVisibilityChangeTo(1));
   }
 
-  ExtensionTestMessageListener click_listener("clicked", /*will_reply=*/false);
+  ExtensionTestMessageListener click_listener("clicked");
   EXPECT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_U, false,
                                               true, true, false));
   EXPECT_TRUE(click_listener.WaitUntilSatisfied());
+}
+
+// This test validates that commands.getAll() returns commands associated with
+// a registered [page/browser] action.
+IN_PROC_BROWSER_TEST_P(ActionCommandsApiTest, GetAllReturnsActionCommand) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  const ActionInfo::Type action_type = GetParam();
+
+  // Load a test extension that has a command for the current action type.
+  constexpr char kManifestTemplate[] = R"(
+    {
+      "name": "Extension Commands Get All Test",
+      "manifest_version": %d,
+      "version": "0.1",
+      "commands": {
+        "%s": {
+          "suggested_key": {
+            "default": "Ctrl+Shift+5"
+          }
+        }
+      },
+      "%s": {},
+      "background": { %s }
+    }
+  )";
+  constexpr char kBackgroundScriptTemplate[] = R"(
+      var platformBinding =
+        /Mac/.test(navigator.platform) ? '⇧⌘5' : 'Ctrl+Shift+5';
+      chrome.commands.getAll(function(commands) {
+        chrome.test.assertEq(1, commands.length);
+
+        chrome.test.assertEq("%s",            commands[0].name);
+        chrome.test.assertEq("",              commands[0].description);
+        chrome.test.assertEq(platformBinding, commands[0].shortcut);
+
+        chrome.test.notifyPass();
+      });
+  )";
+  const char* background_specification =
+      action_type == ActionInfo::TYPE_ACTION
+          ? R"("service_worker": "background.js")"
+          : R"("scripts": ["background.js"])";
+
+  TestExtensionDir test_dir;
+  test_dir.WriteManifest(base::StringPrintf(
+      kManifestTemplate, GetManifestVersionForActionType(action_type),
+      GetCommandKeyForActionType(action_type),
+      ActionInfo::GetManifestKeyForActionType(action_type),
+      background_specification));
+  test_dir.WriteFile(
+      FILE_PATH_LITERAL("background.js"),
+      base::StringPrintf(kBackgroundScriptTemplate,
+                         GetCommandKeyForActionType(action_type)));
+
+  EXPECT_TRUE(RunExtensionTest(test_dir.UnpackedPath(), {}, {})) << message_;
 }
 
 // Tests that triggering a command associated with an action opens an
@@ -1161,7 +1238,7 @@ IN_PROC_BROWSER_TEST_P(ActionCommandsApiTest, TriggeringCommandTriggersPopup) {
   test_dir.WriteManifest(base::StringPrintf(
       kManifestTemplate, GetManifestVersionForActionType(action_type),
       GetCommandKeyForActionType(action_type),
-      GetManifestKeyForActionType(action_type)));
+      ActionInfo::GetManifestKeyForActionType(action_type)));
   test_dir.WriteFile(FILE_PATH_LITERAL("popup.html"), kPopupHtml);
   test_dir.WriteFile(FILE_PATH_LITERAL("popup.js"), kPopupJs);
 

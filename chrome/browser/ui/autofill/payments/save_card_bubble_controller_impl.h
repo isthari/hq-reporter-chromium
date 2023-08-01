@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,17 +84,28 @@ class SaveCardBubbleControllerImpl
   // just saved and links the user to manage their other cards.
   void ShowBubbleForManageCardsForTesting(const CreditCard& card);
 
-  // Update the icon when card is successfully saved. This will dismiss the icon
-  // and trigger a highlight animation of the avatar button.
+  // TODO(crbug.com/1337392): Revisit the function when card upload feedback is
+  // to be added again. In the new proposal, we may not show feedback via icons
+  // so the functions updating the icon may need to be renamed or removed.
+  // Update the icon when card is successfully saved. This
+  // will dismiss the icon and trigger a highlight animation of the avatar
+  // button.
   void UpdateIconForSaveCardSuccess();
 
+  // TODO(crbug.com/1337392): Revisit the function when card upload feedback is
+  // to be added again. In the new proposal, we may not show feedback via icons
+  // so the functions updating the icon may need to be renamed or removed.
   // Updates the save card icon when credit card upload failed. This will only
   // update the icon image and stop icon from animating. The actual bubble will
   // be shown when users click on the icon.
   void UpdateIconForSaveCardFailure();
 
-  // For testing. Sets up the controller for showing the
-  // save card failure bubble.
+  // TODO(crbug.com/1337392): Revisit the function when card upload feedback is
+  // to be added again. In the new proposal, we may not show feedback via a
+  // failure bubble so the functions showing the bubble may need to be renamed
+  // or removed.
+  // For testing. Sets up the controller for showing the save card failure
+  // bubble.
   void ShowBubbleForSaveCardFailureForTesting();
 
   void ReshowBubble();
@@ -104,10 +115,9 @@ class SaveCardBubbleControllerImpl
   std::u16string GetExplanatoryMessage() const override;
   std::u16string GetAcceptButtonText() const override;
   std::u16string GetDeclineButtonText() const override;
-  const AccountInfo& GetAccountInfo() const override;
+  const AccountInfo& GetAccountInfo() override;
   Profile* GetProfile() const override;
   const CreditCard& GetCard() const override;
-  AutofillBubbleBase* GetSaveCardBubbleView() const override;
   bool ShouldRequestNameFromUser() const override;
   bool ShouldRequestExpirationDateFromUser() const override;
 
@@ -124,12 +134,13 @@ class SaveCardBubbleControllerImpl
 
   // SavePaymentIconController:
   std::u16string GetSavePaymentIconTooltipText() const override;
-  bool ShouldShowSavingCardAnimation() const override;
-  bool ShouldShowCardSavedLabelAnimation() const override;
+  bool ShouldShowSavingPaymentAnimation() const override;
+  bool ShouldShowPaymentSavedLabelAnimation() const override;
   bool ShouldShowSaveFailureBadge() const override;
   void OnAnimationEnded() override;
   bool IsIconVisible() const override;
-  AutofillBubbleBase* GetSaveBubbleView() const override;
+  AutofillBubbleBase* GetPaymentBubbleView() const override;
+  PaymentBubbleType GetPaymentBubbleType() const override;
 
  protected:
   explicit SaveCardBubbleControllerImpl(content::WebContents* web_contents);

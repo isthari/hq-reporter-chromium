@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,20 +16,22 @@
 #include "base/files/file_path.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/tick_clock.h"
+#include "base/time/time.h"
 #include "media/base/audio_converter.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/media_util.h"
 #include "media/cast/cast_config.h"
+#include "media/ffmpeg/scoped_av_packet.h"
 #include "media/filters/audio_renderer_algorithm.h"
-#include "media/filters/ffmpeg_demuxer.h"
 
 struct AVCodecContext;
 struct AVFormatContext;
 struct AVFrame;
+struct AVStream;
 
 namespace media {
 
@@ -119,7 +121,8 @@ class FakeMediaSource final : public media::AudioConverter::InputCallback {
 
   // media::AudioConverter::InputCallback implementation.
   double ProvideInput(media::AudioBus* output_bus,
-                      uint32_t frames_delayed) final;
+                      uint32_t frames_delayed,
+                      const media::AudioGlitchInfo& glitch_info) final;
 
   AVStream* av_audio_stream();
   AVStream* av_video_stream();

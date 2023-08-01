@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,7 +70,7 @@ class FakeCTVerifier : public CTVerifier {
 
 class CertAndCTVerifierTest : public TestWithTaskEnvironment {
  public:
-  CertAndCTVerifierTest() {}
+  CertAndCTVerifierTest() = default;
   ~CertAndCTVerifierTest() override = default;
 };
 
@@ -340,6 +340,21 @@ TEST_F(CertAndCTVerifierTest, CertVerifierErrorShouldSkipCT) {
   // SCTs should not be filled in because CTVerifier::Verify() should not be
   // called.
   ASSERT_EQ(0u, verify_result.scts.size());
+}
+
+TEST_F(CertAndCTVerifierTest, ObserverIsForwarded) {
+  auto mock_cert_verifier_owner = std::make_unique<MockCertVerifier>();
+  MockCertVerifier* mock_cert_verifier = mock_cert_verifier_owner.get();
+
+  CertAndCTVerifier cert_and_ct_verifier(std::move(mock_cert_verifier_owner),
+                                         std::make_unique<FakeCTVerifier>());
+
+  CertVerifierObserverCounter observer(&cert_and_ct_verifier);
+  EXPECT_EQ(observer.change_count(), 0u);
+  // A CertVerifierChanged event on the wrapped verifier should be forwarded to
+  // observers registered on CertAndCTVerifier.
+  mock_cert_verifier->SimulateOnCertVerifierChanged();
+  EXPECT_EQ(observer.change_count(), 1u);
 }
 
 }  // namespace net

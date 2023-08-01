@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,8 +40,6 @@ class ChromeWebClient : public web::WebClient {
       web::BrowserURLRewriter* rewriter) override;
   std::vector<web::JavaScriptFeature*> GetJavaScriptFeatures(
       web::BrowserState* browser_state) const override;
-  NSString* GetDocumentStartScriptForMainFrame(
-      web::BrowserState* browser_state) const override;
   void PrepareErrorPage(web::WebState* web_state,
                         const GURL& url,
                         NSError* error,
@@ -51,12 +49,25 @@ class ChromeWebClient : public web::WebClient {
                         int64_t navigation_id,
                         base::OnceCallback<void(NSString*)> callback) override;
   UIView* GetWindowedContainer() override;
-  bool EnableLongPressAndForceTouchHandling() const override;
   bool EnableLongPressUIContextMenu() const override;
+  bool EnableWebInspector(web::BrowserState* browser_state) const override;
   web::UserAgentType GetDefaultUserAgent(web::WebState* web_state,
-                                         const GURL& url) override;
-  bool RestoreSessionFromCache(web::WebState* web_state) const override;
+                                         const GURL& url) const override;
+  void LogDefaultUserAgent(web::WebState* web_state,
+                           const GURL& url) const override;
+  NSData* FetchSessionFromCache(web::WebState* web_state) const override;
   void CleanupNativeRestoreURLs(web::WebState* web_state) const override;
+  void WillDisplayMediaCapturePermissionPrompt(
+      web::WebState* web_state) const override;
+  bool IsPointingToSameDocument(const GURL& url1,
+                                const GURL& url2) const override;
+  id<CRWFindSession> CreateFindSessionForWebState(
+      web::WebState* web_state) const override API_AVAILABLE(ios(16));
+  void StartTextSearchInWebState(web::WebState* web_state) override;
+  void StopTextSearchInWebState(web::WebState* web_state) override;
+  bool IsMixedContentAutoupgradeEnabled(
+      web::BrowserState* browser_state) const override;
+  bool IsBrowserLockdownModeEnabled(web::BrowserState* browser_state) override;
 
  private:
   // Reference to a view that is attached to a window.

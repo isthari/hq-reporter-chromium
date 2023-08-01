@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include "base/memory/raw_ptr.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/sharesheet/sharesheet_ui_delegate.h"
+#include "chromeos/components/sharesheet/constants.h"
+#include "components/services/app_service/public/cpp/intent.h"
 
 namespace sharesheet {
 class SharesheetServiceDelegator;
@@ -32,13 +34,13 @@ class SharesheetBubbleViewDelegate : public ::sharesheet::SharesheetUiDelegate {
 
   // ::sharesheet::SharesheetUiDelegate:
   void ShowBubble(std::vector<::sharesheet::TargetInfo> targets,
-                  apps::mojom::IntentPtr intent,
+                  apps::IntentPtr intent,
                   ::sharesheet::DeliveredCallback delivered_callback,
                   ::sharesheet::CloseCallback close_callback) override;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   void ShowNearbyShareBubbleForArc(
-      apps::mojom::IntentPtr intent,
+      apps::IntentPtr intent,
       ::sharesheet::DeliveredCallback delivered_callback,
       ::sharesheet::CloseCallback close_callback) override;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/singleton.h"
 
 namespace arc {
@@ -72,14 +72,9 @@ bool ArcStorageManager::GetApplicationsSize(
   return true;
 }
 
-bool ArcStorageManager::DeleteApplicationsCache(
-    base::OnceCallback<void()> callback) {
-  auto* storage_manager_instance = ARC_GET_INSTANCE_FOR_METHOD(
-      arc_bridge_service_->storage_manager(), DeleteApplicationsCache);
-  if (!storage_manager_instance)
-    return false;
-  storage_manager_instance->DeleteApplicationsCache(std::move(callback));
-  return true;
+// static
+void ArcStorageManager::EnsureFactoryBuilt() {
+  ArcStorageManagerFactory::GetInstance();
 }
 
 }  // namespace arc

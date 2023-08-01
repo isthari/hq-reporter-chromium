@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "media/base/android/media_server_crash_listener.h"
 #include "media/base/fake_single_thread_task_runner.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -65,7 +66,7 @@ class MediaServiceThrottlerTest : public testing::Test {
 
   scoped_refptr<FakeSingleThreadTaskRunner> test_task_runner_;
 
-  // Necessary, or else base::ThreadTaskRunnerHandle::Get() fails.
+  // Necessary, or else base::SingleThreadTaskRunner::GetCurrentDefault() fails.
   base::test::SingleThreadTaskEnvironment task_environment_;
 };
 

@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {ConfirmDialog} from 'chrome://resources/js/cr/ui/dialogs.m.js';
-
 import {str, util} from '../../../common/js/util.js';
+
+import {ConfirmDialog} from './dialogs.js';
+
 
 
 /**
@@ -33,6 +34,7 @@ export class ImportCrostiniImageDialog extends ConfirmDialog {
     super.showWithTitle(
         str('IMPORT_CROSTINI_IMAGE_DIALOG_TITLE'),
         str('IMPORT_CROSTINI_IMAGE_DIALOG_DESCRIPTION'),
-        chrome.fileManagerPrivate.importCrostiniImage.bind(null, entry));
+        chrome.fileManagerPrivate.importCrostiniImage.bind(
+            null, /** @type {!Entry} */ (util.unwrapEntry(entry))));
   }
 }

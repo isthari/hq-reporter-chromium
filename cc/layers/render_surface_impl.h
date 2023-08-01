@@ -1,4 +1,4 @@
-// Copyright 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,16 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
 #include "cc/cc_export.h"
-#include "cc/document_transition/document_transition_shared_element_id.h"
 #include "cc/layers/draw_mode.h"
 #include "cc/layers/layer_collections.h"
 #include "cc/trees/occlusion.h"
 #include "cc/trees/property_tree.h"
+#include "cc/view_transition/view_transition_element_id.h"
 #include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/quads/shared_quad_state.h"
 #include "components/viz/common/surfaces/subtree_capture_id.h"
@@ -38,9 +39,22 @@ class LayerImpl;
 class LayerTreeImpl;
 class PictureLayerImpl;
 
+struct RenderSurfacePropertyChangedFlags {
+ public:
+  RenderSurfacePropertyChangedFlags() = default;
+  RenderSurfacePropertyChangedFlags(bool self_changed, bool ancestor_changed)
+      : self_changed_(self_changed), ancestor_changed_(ancestor_changed) {}
+  bool self_changed() const { return self_changed_; }
+  bool ancestor_changed() const { return ancestor_changed_; }
+
+ private:
+  bool self_changed_ = false;
+  bool ancestor_changed_ = false;
+};
+
 class CC_EXPORT RenderSurfaceImpl {
  public:
-  RenderSurfaceImpl(LayerTreeImpl* layer_tree_impl, uint64_t stable_id);
+  RenderSurfaceImpl(LayerTreeImpl* layer_tree_impl, ElementId stable_id);
   RenderSurfaceImpl(const RenderSurfaceImpl&) = delete;
   virtual ~RenderSurfaceImpl();
 
@@ -76,7 +90,7 @@ class CC_EXPORT RenderSurfaceImpl {
     return nearest_occlusion_immune_ancestor_;
   }
 
-  SkColor GetDebugBorderColor() const;
+  SkColor4f GetDebugBorderColor() const;
   float GetDebugBorderWidth() const;
 
   void SetDrawTransform(const gfx::Transform& draw_transform) {
@@ -162,9 +176,9 @@ class CC_EXPORT RenderSurfaceImpl {
     occlusion_in_content_space_ = occlusion;
   }
 
-  uint64_t id() const { return stable_id_; }
+  ElementId id() const { return id_; }
   viz::CompositorRenderPassId render_pass_id() const {
-    return viz::CompositorRenderPassId{id()};
+    return viz::CompositorRenderPassId(id().GetInternalValue());
   }
 
   bool HasMaskingContributingSurface() const;
@@ -195,9 +209,13 @@ class CC_EXPORT RenderSurfaceImpl {
   // and should be e.g. immune from occlusion, etc. Returns false otherise.
   bool CopyOfOutputRequired() const;
 
+  // These are to enable commit, where we need to snapshot these flags from the
+  // main thread property trees, and then apply them to the sync tree.
+  RenderSurfacePropertyChangedFlags GetPropertyChangeFlags() const;
+  void ApplyPropertyChangeFlags(const RenderSurfacePropertyChangedFlags& flags);
+
   void ResetPropertyChangedFlags();
   bool SurfacePropertyChanged() const;
-  bool SurfacePropertyChangedOnlyFromDescendant() const;
   bool AncestorPropertyChanged() const;
   void NoteAncestorPropertyChanged();
   bool HasDamageFromeContributingContent() const;
@@ -220,9 +238,9 @@ class CC_EXPORT RenderSurfaceImpl {
   int EffectTreeIndex() const;
 
   const EffectNode* OwningEffectNode() const;
+  EffectNode* OwningEffectNodeMutableForTest() const;
 
-  const DocumentTransitionSharedElementId&
-  GetDocumentTransitionSharedElementId() const;
+  const ViewTransitionElementId& GetViewTransitionElementId() const;
 
  private:
   void SetContentRect(const gfx::Rect& content_rect);
@@ -234,7 +252,7 @@ class CC_EXPORT RenderSurfaceImpl {
                      const gfx::Rect& unoccluded_content_rect);
 
   raw_ptr<LayerTreeImpl> layer_tree_impl_;
-  uint64_t stable_id_;
+  ElementId id_;
   int effect_tree_index_;
 
   // Container for properties that render surfaces need to compute before they
@@ -284,7 +302,8 @@ class CC_EXPORT RenderSurfaceImpl {
 
   // The nearest ancestor target surface that will contain the contents of this
   // surface, and that ignores outside occlusion. This can point to itself.
-  raw_ptr<const RenderSurfaceImpl> nearest_occlusion_immune_ancestor_;
+  raw_ptr<const RenderSurfaceImpl, DanglingUntriaged>
+      nearest_occlusion_immune_ancestor_;
 
   std::unique_ptr<DamageTracker> damage_tracker_;
 };

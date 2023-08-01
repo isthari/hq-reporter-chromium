@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "cc/paint/paint_flags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/metadata/view_factory.h"
@@ -44,11 +45,7 @@ class VIEWS_EXPORT Checkbox : public LabelButton {
   void SetMultiLine(bool multi_line);
   bool GetMultiLine() const;
 
-  // If the accessible name should be the same as the labelling view's text,
-  // use this. It will set the accessible label relationship and copy the
-  // accessible name from the labelling views's accessible name. Any view with
-  // an accessible name can be used, e.g. a Label, StyledLabel or Link.
-  void SetAssociatedLabel(View* labelling_view);
+  void SetCheckedIconImageColor(SkColor color);
 
   // LabelButton:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
@@ -67,6 +64,7 @@ class VIEWS_EXPORT Checkbox : public LabelButton {
 
   // |icon_state| is a bitmask using the IconState enum.
   virtual SkColor GetIconImageColor(int icon_state) const;
+  virtual SkColor GetIconContainerColor(int icon_state) const;
 
   // Gets the vector icon to use based on the current state of |checked_|.
   virtual const gfx::VectorIcon& GetVectorIcon() const;
@@ -82,6 +80,8 @@ class VIEWS_EXPORT Checkbox : public LabelButton {
 
   // True if the checkbox is checked.
   bool checked_ = false;
+
+  absl::optional<SkColor> checked_icon_image_color_;
 };
 
 BEGIN_VIEW_BUILDER(VIEWS_EXPORT, Checkbox, LabelButton)

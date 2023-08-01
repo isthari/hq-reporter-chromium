@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,9 @@
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/content_browser_test_content_browser_client.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_browser_context.h"
-#include "content/shell/browser/shell_content_browser_client.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/test/test_content_client.h"
 #include "ui/events/platform/platform_event_source.h"
@@ -34,7 +34,7 @@
 #include "ui/base/ime/init/input_method_initializer.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "content/public/test/network_connection_change_simulator.h"
 #endif
 
@@ -45,6 +45,10 @@
 namespace content {
 
 ContentBrowserTest::ContentBrowserTest() {
+  // In content browser tests ContentBrowserTestContentBrowserClient must be
+  // used. ContentBrowserTestContentBrowserClient's constructor (and destructor)
+  // uses this same function to change the ContentBrowserClient.
+  ContentClient::SetCanChangeContentBrowserClientForTesting(false);
 #if BUILDFLAG(IS_MAC)
   base::mac::SetOverrideAmIBundled(true);
 
@@ -83,7 +87,7 @@ void ContentBrowserTest::SetUp() {
                                  subprocess_path);
 #endif
 
-#if defined(USE_AURA) && defined(TOOLKIT_VIEWS) && !BUILDFLAG(IS_CHROMECAST)
+#if defined(USE_AURA) && defined(TOOLKIT_VIEWS) && !BUILDFLAG(IS_CASTOS)
   // https://crbug.com/695054: Ignore window activation/deactivation to make
   // the Chrome-internal focus unaffected by OS events caused by running tests
   // in parallel.
@@ -114,7 +118,7 @@ void ContentBrowserTest::TearDown() {
 }
 
 void ContentBrowserTest::PreRunTestOnMainThread() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   NetworkConnectionChangeSimulator network_change_simulator;
   network_change_simulator.InitializeChromeosConnectionType();
 #endif

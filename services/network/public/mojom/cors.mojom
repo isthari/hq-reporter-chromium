@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -162,4 +162,20 @@ struct CorsErrorStatus {
   bool has_authorization_covered_by_wildcard_on_preflight = false;
 
   mojo_base.mojom.UnguessableToken issue_id;
+};
+
+// Describes what happened wrt PNA preflights during a request.
+// TODO(https://crbug.com/1268378): Remove this once preflights are enforced.
+enum PrivateNetworkAccessPreflightResult {
+  // No preflight was sent.
+  kNone,
+
+  // A preflight was sent and succeeded.
+  kSuccess,
+
+  // A preflight was sent in warning-only mode and failed.
+  kWarning,
+
+  // A preflight was sent and failed.
+  kError,
 };

@@ -1,12 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/omnibox/omnibox_row_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/case_conversion.h"
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/omnibox/omnibox_theme.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
@@ -14,8 +16,10 @@
 #include "chrome/browser/ui/views/omnibox/omnibox_mouse_enter_exit_handler.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_result_view.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_popup_selection.h"
 #include "components/omnibox/browser/omnibox_prefs.h"
+#include "components/omnibox/browser/suggestion_group_util.h"
 #include "components/omnibox/browser/vector_icons.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
@@ -24,7 +28,8 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
-#include "ui/gfx/color_palette.h"
+#include "ui/base/models/image_model.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -51,13 +56,16 @@ class OmniboxRowView::HeaderView : public views::View {
         SetLayoutManager(std::make_unique<views::BoxLayout>(
             views::BoxLayout::Orientation::kHorizontal));
     // This is the designer-provided spacing that matches the NTP Realbox.
-    layout->set_between_child_spacing(8);
+    // TODO(khalidpeer): Update this spacing for realbox per CR23 guidelines.
+    const int spacing_between_label_and_icon =
+        OmniboxFieldTrial::IsChromeRefreshSuggestIconsEnabled() ? 0 : 8;
+    layout->set_between_child_spacing(spacing_between_label_and_icon);
 
     header_label_ = AddChildView(std::make_unique<views::Label>());
     header_label_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
 
     const gfx::FontList& font =
-        views::style::GetFont(CONTEXT_OMNIBOX_PRIMARY,
+        views::style::GetFont(CONTEXT_OMNIBOX_SECTION_HEADER,
                               views::style::STYLE_PRIMARY)
             .DeriveWithWeight(gfx::Font::Weight::MEDIUM);
     header_label_->SetFontList(font);
@@ -71,10 +79,15 @@ class OmniboxRowView::HeaderView : public views::View {
 
     views::FocusRing::Install(header_toggle_button_);
     views::FocusRing::Get(header_toggle_button_)
-        ->SetHasFocusPredicate([&](View* view) {
-          return view->GetVisible() &&
-                 row_view_->model_->GetPopupSelection() == GetHeaderSelection();
-        });
+        ->SetHasFocusPredicate(base::BindRepeating(
+            [](const HeaderView* header, const View* view) {
+              return view->GetVisible() &&
+                     header->row_view_->model_->GetPopupSelection() ==
+                         header->GetHeaderSelection();
+            },
+            base::Unretained(this)));
+    views::FocusRing::Get(header_toggle_button_)
+        ->SetOutsetFocusRingDisabled(true);
 
     if (row_view_->pref_service_) {
       pref_change_registrar_.Init(row_view_->pref_service_);
@@ -85,18 +98,23 @@ class OmniboxRowView::HeaderView : public views::View {
     }
   }
 
-  void SetHeader(int suggestion_group_id, const std::u16string& header_text) {
+  void SetHeader(omnibox::GroupId suggestion_group_id,
+                 const std::u16string& header_text) {
     suggestion_group_id_ = suggestion_group_id;
     header_text_ = header_text;
 
     // TODO(tommycli): Our current design calls for uppercase text here, but
     // it seems like an open question what should happen for non-Latin locales.
     // Moreover, it seems unusual to do case conversion in Views in general.
-    header_label_->SetText(base::i18n::ToUpper(header_text_));
+    std::u16string header_str = header_text_;
+    if (!OmniboxFieldTrial::IsChromeRefreshSuggestIconsEnabled()) {
+      header_str = base::i18n::ToUpper(header_str);
+    }
+    header_label_->SetText(header_str);
 
     if (row_view_->pref_service_) {
       suggestion_group_hidden_ =
-          row_view_->model_->result().IsSuggestionGroupIdHidden(
+          row_view_->model_->result().IsSuggestionGroupHidden(
               row_view_->pref_service_, suggestion_group_id_);
 
       header_toggle_button_->SetToggled(suggestion_group_hidden_);
@@ -106,7 +124,8 @@ class OmniboxRowView::HeaderView : public views::View {
   // views::View:
   gfx::Insets GetInsets() const override {
     // Makes the header height roughly the same as the single-line row height.
-    constexpr int vertical = 6;
+    const int vertical =
+        OmniboxFieldTrial::IsChromeRefreshSuggestIconsEnabled() ? 8 : 6;
 
     // Aligns the header text with the icons of ordinary matches. The assumed
     // small icon width here is lame, but necessary, since it's not explicitly
@@ -117,15 +136,15 @@ class OmniboxRowView::HeaderView : public views::View {
                                 assumed_match_cell_icon_width) /
                                    2;
 
-    return gfx::Insets(vertical, left_inset, vertical,
-                       OmniboxMatchCellView::kMarginRight);
+    return gfx::Insets::TLBR(vertical, left_inset, vertical,
+                             OmniboxMatchCellView::kMarginRight);
   }
   bool OnMousePressed(const ui::MouseEvent& event) override {
     // Needed to receive the OnMouseReleased event.
     return true;
   }
   void OnMouseReleased(const ui::MouseEvent& event) override {
-    row_view_->model_->TriggerPopupSelectionAction(GetHeaderSelection());
+    row_view_->model_->OpenSelection(GetHeaderSelection(), event.time_stamp());
   }
   void OnMouseEntered(const ui::MouseEvent& event) override { UpdateUI(); }
   void OnMouseExited(const ui::MouseEvent& event) override { UpdateUI(); }
@@ -155,20 +174,31 @@ class OmniboxRowView::HeaderView : public views::View {
       part_state = OmniboxPartState::HOVERED;
     }
 
-    SkColor text_color = GetOmniboxColor(
-        GetThemeProvider(), OmniboxPart::RESULTS_TEXT_DIMMED, part_state);
+    const auto* const color_provider = GetColorProvider();
+    const SkColor text_color =
+        color_provider->GetColor((part_state == OmniboxPartState::SELECTED)
+                                     ? kColorOmniboxResultsTextDimmedSelected
+                                     : kColorOmniboxResultsTextDimmed);
     header_label_->SetEnabledColor(text_color);
 
-    SkColor icon_color = GetOmniboxColor(GetThemeProvider(),
-                                         OmniboxPart::RESULTS_ICON, part_state);
+    const SkColor icon_color =
+        color_provider->GetColor((part_state == OmniboxPartState::SELECTED)
+                                     ? kColorOmniboxResultsIconSelected
+                                     : kColorOmniboxResultsIcon);
     views::InkDrop::Get(header_toggle_button_)->SetBaseColor(icon_color);
 
     int dip_size = GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
-    const gfx::ImageSkia arrow_down =
-        gfx::CreateVectorIcon(omnibox::kChevronIcon, dip_size, icon_color);
+    const gfx::ImageSkia arrow_down = gfx::CreateVectorIcon(
+        OmniboxFieldTrial::IsChromeRefreshSuggestIconsEnabled()
+            ? omnibox::kArrowDownChromeRefreshIcon
+            : omnibox::kChevronIcon,
+        dip_size, icon_color);
     const gfx::ImageSkia arrow_up =
-        gfx::ImageSkiaOperations::CreateRotatedImage(
-            arrow_down, SkBitmapOperations::ROTATION_180_CW);
+        OmniboxFieldTrial::IsChromeRefreshSuggestIconsEnabled()
+            ? gfx::CreateVectorIcon(omnibox::kArrowUpChromeRefreshIcon,
+                                    dip_size, icon_color)
+            : gfx::ImageSkiaOperations::CreateRotatedImage(
+                  arrow_down, SkBitmapOperations::ROTATION_180_CW);
 
     // The "untoggled" button state corresponds with the group being shown.
     // The button's action is therefore to Hide the group, when clicked.
@@ -180,8 +210,8 @@ class OmniboxRowView::HeaderView : public views::View {
 
     // The "toggled" button state corresponds with the group being hidden.
     // The button's action is therefore to Show the group, when clicked.
-    header_toggle_button_->SetToggledImage(views::Button::STATE_NORMAL,
-                                           &arrow_down);
+    header_toggle_button_->SetToggledImageModel(
+        views::Button::STATE_NORMAL, ui::ImageModel::FromImageSkia(arrow_down));
     header_toggle_button_->SetToggledTooltipText(
         l10n_util::GetStringUTF16(IDS_TOOLTIP_HEADER_SHOW_SUGGESTIONS_BUTTON));
     header_toggle_button_->SetToggledAccessibleName(l10n_util::GetStringFUTF16(
@@ -192,35 +222,33 @@ class OmniboxRowView::HeaderView : public views::View {
     // It's a little hokey that we're stealing the logic for the background
     // color from OmniboxResultView. If we start doing this is more than just
     // one place, we should introduce a more elegant abstraction here.
-    SetBackground(OmniboxResultView::GetPopupCellBackground(this, part_state));
+    if (!OmniboxFieldTrial::IsChromeRefreshSuggestIconsEnabled()) {
+      SetBackground(
+          OmniboxResultView::GetPopupCellBackground(this, part_state));
+    }
   }
 
   views::Button* header_toggle_button() const { return header_toggle_button_; }
 
  private:
   void HeaderToggleButtonPressed() {
-    row_view_->model_->TriggerPopupSelectionAction(GetHeaderSelection());
+    row_view_->model_->OpenSelection(GetHeaderSelection(), base::TimeTicks());
     // The PrefChangeRegistrar will update the actual button toggle state.
   }
 
   // Updates the hide button's toggle state.
   void OnPrefChanged() {
     DCHECK(row_view_->pref_service_);
-    bool was_hidden = suggestion_group_hidden_;
-    suggestion_group_hidden_ =
-        row_view_->model_->result().IsSuggestionGroupIdHidden(
-            row_view_->pref_service_, suggestion_group_id_);
+    suggestion_group_hidden_ = !suggestion_group_hidden_;
 
-    if (was_hidden != suggestion_group_hidden_) {
-      NotifyAccessibilityEvent(ax::mojom::Event::kExpandedChanged, true);
+    NotifyAccessibilityEvent(ax::mojom::Event::kExpandedChanged, true);
 
-      // Because this view doesn't have true focus (it stays on the textfield),
-      // we also need to manually announce state changes.
-      GetViewAccessibility().AnnounceText(l10n_util::GetStringFUTF16(
-          suggestion_group_hidden_ ? IDS_ACC_HEADER_SECTION_HIDDEN
-                                   : IDS_ACC_HEADER_SECTION_SHOWN,
-          header_text_));
-    }
+    // Because this view doesn't have true focus (it stays on the textfield),
+    // we also need to manually announce state changes.
+    GetViewAccessibility().AnnounceText(l10n_util::GetStringFUTF16(
+        suggestion_group_hidden_ ? IDS_ACC_HEADER_SECTION_HIDDEN
+                                 : IDS_ACC_HEADER_SECTION_SHOWN,
+        header_text_));
 
     header_toggle_button_->SetToggled(suggestion_group_hidden_);
   }
@@ -242,7 +270,7 @@ class OmniboxRowView::HeaderView : public views::View {
   raw_ptr<views::ToggleImageButton> header_toggle_button_;
 
   // The group ID associated with this header.
-  int suggestion_group_id_ = 0;
+  omnibox::GroupId suggestion_group_id_ = omnibox::GROUP_INVALID;
 
   // The unmodified header text for this header.
   std::u16string header_text_;
@@ -264,8 +292,6 @@ DEFINE_ENUM_CONVERTERS(OmniboxPopupSelection::LineState,
                         u"FOCUSED_BUTTON_HEADER"},
                        {OmniboxPopupSelection::NORMAL, u"NORMAL"},
                        {OmniboxPopupSelection::KEYWORD_MODE, u"KEYWORD_MODE"},
-                       {OmniboxPopupSelection::FOCUSED_BUTTON_TAB_SWITCH,
-                        u"FOCUSED_BUTTON_TAB_SWITCH"},
                        {OmniboxPopupSelection::FOCUSED_BUTTON_ACTION,
                         u"FOCUSED_BUTTON_ACTION"},
                        {OmniboxPopupSelection::FOCUSED_BUTTON_REMOVE_SUGGESTION,
@@ -326,7 +352,7 @@ OmniboxRowView::OmniboxRowView(size_t line,
   result_view_ = AddChildView(std::move(result_view));
 }
 
-void OmniboxRowView::ShowHeader(int suggestion_group_id,
+void OmniboxRowView::ShowHeader(omnibox::GroupId suggestion_group_id,
                                 const std::u16string& header_text) {
   // Create the header (at index 0) if it doesn't exist.
   if (header_view_ == nullptr)
@@ -360,8 +386,10 @@ views::View* OmniboxRowView::GetActiveAuxiliaryButtonForAccessibility() const {
 gfx::Insets OmniboxRowView::GetInsets() const {
   // A visible header means this is the start of a new section. Give the section
   // that just ended an extra 4dp of padding. https://crbug.com/1076646
-  if (line_ != 0 && header_view_ && header_view_->GetVisible())
-    return gfx::Insets(4, 0, 0, 0);
+  if (line_ != 0 && header_view_ && header_view_->GetVisible() &&
+      !OmniboxFieldTrial::IsChromeRefreshSuggestIconsEnabled()) {
+    return gfx::Insets::TLBR(4, 0, 0, 0);
+  }
 
   return gfx::Insets();
 }

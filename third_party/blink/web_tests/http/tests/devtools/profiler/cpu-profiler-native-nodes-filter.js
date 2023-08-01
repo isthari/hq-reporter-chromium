@@ -1,11 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
+import {CPUProfilerTestRunner} from 'cpu_profiler_test_runner';
 
 (async function() {
   TestRunner.addResult(`Tests filtering of native nodes.
     Also tests loading of a legacy nodes format, where nodes were represented as a tree.\n`);
-  await TestRunner.loadTestModule('cpu_profiler_test_runner');
 
   var profile = {
     'head': {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,9 +37,6 @@ enum class FeatureStatus {
   // A dependent feature is in an incompatible state because there is no active
   // connection to the phone or trying to connect to the phone.
   kDependentFeaturePending = 6,
-
-  // Feature is not enabled by the current host phone device.
-  kNotEnabledByPhone = 7,
 };
 
 std::ostream& operator<<(std::ostream& stream, FeatureStatus status);

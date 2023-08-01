@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,10 +32,7 @@ class PopupBlockerBrowserTest : public WebLayerBrowserTest,
   void SetUpOnMainThread() override {
     ASSERT_TRUE(embedded_test_server()->Start());
     original_tab_ = shell()->tab();
-#if !BUILDFLAG(IS_ANDROID)
-    // Android does this in Java.
     original_tab_->SetNewTabDelegate(this);
-#endif
     shell()->browser()->AddObserver(this);
 
     NavigateAndWaitForCompletion(embedded_test_server()->GetURL("/echo"),

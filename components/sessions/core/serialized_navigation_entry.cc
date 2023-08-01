@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -186,8 +186,13 @@ bool SerializedNavigationEntry::ReadFromPickle(base::PickleIterator* iterator) {
       !iterator->ReadString(&encoded_page_state_) ||
       !iterator->ReadInt(&transition_type_int))
     return false;
+
   virtual_url_ = GURL(virtual_url_spec);
-  transition_type_ = ui::PageTransitionFromInt(transition_type_int);
+  // Fall back to PAGE_TRANSITION_LINK in case the entry is either corrupted or
+  // format incompatible due to version skew.
+  transition_type_ = ui::IsValidPageTransitionType(transition_type_int)
+                         ? ui::PageTransitionFromInt(transition_type_int)
+                         : ui::PAGE_TRANSITION_LINK;
 
   // type_mask did not always exist in the written stream. As such, we
   // don't fail if it can't be read.

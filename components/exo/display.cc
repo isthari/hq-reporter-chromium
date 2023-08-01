@@ -1,51 +1,44 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/exo/display.h"
 
+#include <GLES2/gl2extchromium.h>
 #include <iterator>
 #include <memory>
 #include <utility>
 
+#include "ash/public/cpp/shell_window_ids.h"
+#include "ash/wm/desks/desks_util.h"
 #include "base/command_line.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
+#include "components/exo/buffer.h"
+#include "components/exo/client_controlled_shell_surface.h"
 #include "components/exo/data_device.h"
 #include "components/exo/data_exchange_delegate.h"
+#include "components/exo/input_method_surface.h"
 #include "components/exo/input_method_surface_manager.h"
 #include "components/exo/notification_surface.h"
 #include "components/exo/notification_surface_manager.h"
 #include "components/exo/shared_memory.h"
+#include "components/exo/shell_surface.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/sub_surface.h"
 #include "components/exo/surface.h"
-#include "ui/gfx/linux/client_native_pixmap_factory_dmabuf.h"
-#include "ui/views/widget/widget.h"
-#include "ui/wm/core/coordinate_conversion.h"
-
-#if defined(USE_OZONE)
-#include <GLES2/gl2extchromium.h>
-#include "components/exo/buffer.h"
+#include "components/exo/toast_surface.h"
+#include "components/exo/toast_surface_manager.h"
+#include "components/exo/xdg_shell_surface.h"
 #include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl_native_pixmap.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
+#include "ui/gfx/linux/client_native_pixmap_factory_dmabuf.h"
 #include "ui/ozone/public/ozone_switches.h"
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/public/cpp/shell_window_ids.h"
-#include "ash/wm/desks/desks_util.h"
-#include "components/exo/client_controlled_shell_surface.h"
-#include "components/exo/input_method_surface.h"
-#include "components/exo/shell_surface.h"
-#include "components/exo/toast_surface.h"
-#include "components/exo/toast_surface_manager.h"
-#include "components/exo/xdg_shell_surface.h"
-#endif
+#include "ui/views/widget/widget.h"
+#include "ui/wm/core/coordinate_conversion.h"
 
 namespace exo {
 
@@ -54,14 +47,9 @@ namespace exo {
 
 Display::Display()
     : seat_(nullptr),
-#if defined(USE_OZONE)
       client_native_pixmap_factory_(
-          gfx::CreateClientNativePixmapFactoryDmabuf())
-#endif
-{
-}
+          gfx::CreateClientNativePixmapFactoryDmabuf()) {}
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 Display::Display(
     std::unique_ptr<NotificationSurfaceManager> notification_surface_manager,
     std::unique_ptr<InputMethodSurfaceManager> input_method_surface_manager,
@@ -73,7 +61,6 @@ Display::Display(
       seat_(std::move(data_exchange_delegate)),
       client_native_pixmap_factory_(
           gfx::CreateClientNativePixmapFactoryDmabuf()) {}
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 Display::~Display() {
   Shutdown();
@@ -103,7 +90,6 @@ std::unique_ptr<SharedMemory> Display::CreateSharedMemory(
   return std::make_unique<SharedMemory>(std::move(shared_memory_region));
 }
 
-#if defined(USE_OZONE)
 std::unique_ptr<Buffer> Display::CreateLinuxDMABufBuffer(
     const gfx::Size& size,
     gfx::BufferFormat format,
@@ -137,9 +123,7 @@ std::unique_ptr<Buffer> Display::CreateLinuxDMABufBuffer(
       GL_COMMANDS_COMPLETED_CHROMIUM, use_zero_copy,
       /*is_overlay_candidate=*/true, y_invert);
 }
-#endif  // defined(USE_OZONE)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 std::unique_ptr<ShellSurface> Display::CreateShellSurface(Surface* surface) {
   TRACE_EVENT1("exo", "Display::CreateShellSurface", "surface",
                surface->AsTracedValue());
@@ -172,7 +156,8 @@ Display::CreateOrGetClientControlledShellSurface(
     Surface* surface,
     int container,
     double default_device_scale_factor,
-    bool default_scale_cancellation) {
+    bool default_scale_cancellation,
+    bool supports_floated_state) {
   TRACE_EVENT2("exo", "Display::CreateRemoteShellSurface", "surface",
                surface->AsTracedValue(), "container", container);
 
@@ -203,13 +188,15 @@ Display::CreateOrGetClientControlledShellSurface(
                                      default_scale_cancellation);
   } else {
     shell_surface = std::make_unique<ClientControlledShellSurface>(
-        surface, can_minimize, container, default_scale_cancellation);
+        surface, can_minimize, container, default_scale_cancellation,
+        supports_floated_state);
   }
 
   if (default_scale_cancellation) {
     shell_surface->SetScale(default_device_scale_factor);
     shell_surface->CommitPendingScale();
   }
+
   return shell_surface;
 }
 
@@ -282,7 +269,6 @@ std::unique_ptr<ToastSurface> Display::CreateToastSurface(
   }
   return toast_surface;
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 std::unique_ptr<SubSurface> Display::CreateSubSurface(Surface* surface,
                                                       Surface* parent) {

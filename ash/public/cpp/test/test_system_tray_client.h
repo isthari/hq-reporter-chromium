@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/public/cpp/ash_public_export.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "base/strings/string_piece.h"
+#include "components/access_code_cast/common/access_code_cast_metrics.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
@@ -40,12 +41,16 @@ class ASH_PUBLIC_EXPORT TestSystemTrayClient : public SystemTrayClient {
   void ShowTetherNetworkSettings() override;
   void ShowWifiSyncSettings() override;
   void ShowAboutChromeOS() override;
+  void ShowAboutChromeOSDetails() override;
   void ShowAccessibilityHelp() override;
   void ShowAccessibilitySettings() override;
   void ShowGestureEducationHelp() override;
   void ShowPaletteHelp() override;
   void ShowPaletteSettings() override;
   void ShowPrivacyAndSecuritySettings() override;
+  void ShowPrivacyHubSettings() override;
+  void ShowSpeakOnMuteDetectionSettings() override;
+  void ShowSmartPrivacySettings() override;
   void ShowEnterpriseInfo() override;
   void ShowNetworkConfigure(const std::string& network_id) override;
   void ShowNetworkCreate(const std::string& type) override;
@@ -54,22 +59,37 @@ class ASH_PUBLIC_EXPORT TestSystemTrayClient : public SystemTrayClient {
   void ShowThirdPartyVpnCreate(const std::string& extension_id) override;
   void ShowArcVpnCreate(const std::string& app_id) override;
   void ShowNetworkSettings(const std::string& network_id) override;
+  void ShowHotspotSubpage() override;
   void ShowMultiDeviceSetup() override;
   void ShowFirmwareUpdate() override;
-  void RequestRestartForUpdate() override;
   void SetLocaleAndExit(const std::string& locale_iso_code) override;
-  void ShowAccessCodeCastingDialog() override;
+  void ShowAccessCodeCastingDialog(
+      AccessCodeCastDialogOpenLocation open_location) override;
   void ShowCalendarEvent(const absl::optional<GURL>& event_url,
+                         const base::Time& date,
                          bool& opened_pwa,
                          GURL& final_event_url) override;
+  void ShowVideoConference(const GURL& video_conference_url) override;
+  void ShowChannelInfoAdditionalDetails() override;
+  void ShowChannelInfoGiveFeedback() override;
+  void ShowAudioSettings() override;
+  bool IsUserFeedbackEnabled() override;
+  void ShowEolInfoPage() override;
+  void RecordEolNoticeShown() override;
 
   int show_bluetooth_settings_count() const {
     return show_bluetooth_settings_count_;
   }
 
+  int show_network_settings_count() const {
+    return show_network_settings_count_;
+  }
+
   int show_bluetooth_pairing_dialog_count() const {
     return show_bluetooth_pairing_dialog_count_;
   }
+
+  int show_hotspot_subpage_count() const { return show_hotspot_subpage_count_; }
 
   int show_multi_device_setup_count() const {
     return show_multi_device_setup_count_;
@@ -83,6 +103,18 @@ class ASH_PUBLIC_EXPORT TestSystemTrayClient : public SystemTrayClient {
     return show_os_settings_privacy_and_security_count_;
   }
 
+  int show_os_settings_privacy_hub_count() const {
+    return show_os_settings_privacy_hub_count_;
+  }
+
+  int show_speak_on_mute_detection_count() const {
+    return show_speak_on_mute_detection_count_;
+  }
+
+  int show_os_smart_privacy_settings_count() const {
+    return show_os_smart_privacy_settings_count_;
+  }
+
   int show_wifi_sync_settings_count() const {
     return show_wifi_sync_settings_count_;
   }
@@ -91,22 +123,90 @@ class ASH_PUBLIC_EXPORT TestSystemTrayClient : public SystemTrayClient {
     return show_sim_unlock_settings_count_;
   }
 
+  int show_third_party_vpn_create_count() const {
+    return show_third_party_vpn_create_count_;
+  }
+
+  const std::string& last_third_party_vpn_extension_id() const {
+    return last_third_party_vpn_extension_id_;
+  }
+
+  int show_arc_vpn_create_count() const { return show_arc_vpn_create_count_; }
+
+  const std::string& last_arc_vpn_app_id() const {
+    return last_arc_vpn_app_id_;
+  }
+
+  int show_network_create_count() const { return show_network_create_count_; }
+
+  int show_access_code_casting_dialog_count() const {
+    return show_access_code_casting_dialog_count_;
+  }
+
+  int show_calendar_event_count() const { return show_calendar_event_count_; }
+
+  int show_video_conference_count() const {
+    return show_video_conference_count_;
+  }
+
+  const std::string& last_network_type() const { return last_network_type_; }
+
   int show_firmware_update_count() const { return show_firmware_update_count_; }
 
   const std::string& last_bluetooth_settings_device_id() const {
     return last_bluetooth_settings_device_id_;
   }
 
+  const std::string& last_network_settings_network_id() const {
+    return last_network_settings_network_id_;
+  }
+
+  int show_channel_info_additional_details_count() const {
+    return show_channel_info_additional_details_count_;
+  }
+
+  int show_channel_info_give_feedback_count() const {
+    return show_channel_info_give_feedback_count_;
+  }
+
+  int show_audio_settings_count() const { return show_audio_settings_count_; }
+
+  void set_user_feedback_enabled(bool user_feedback_enabled) {
+    user_feedback_enabled_ = user_feedback_enabled;
+  }
+
+  int show_eol_info_count() const { return show_eol_info_count_; }
+
  private:
+  int show_network_settings_count_ = 0;
   int show_bluetooth_settings_count_ = 0;
   int show_bluetooth_pairing_dialog_count_ = 0;
+  int show_hotspot_subpage_count_ = 0;
   int show_multi_device_setup_count_ = 0;
   int show_connected_devices_settings_count_ = 0;
   int show_os_settings_privacy_and_security_count_ = 0;
+  int show_os_settings_privacy_hub_count_ = 0;
+  int show_speak_on_mute_detection_count_ = 0;
+  int show_os_smart_privacy_settings_count_ = 0;
   int show_wifi_sync_settings_count_ = 0;
   int show_sim_unlock_settings_count_ = 0;
+  int show_third_party_vpn_create_count_ = 0;
+  std::string last_third_party_vpn_extension_id_;
+  int show_arc_vpn_create_count_ = 0;
+  std::string last_arc_vpn_app_id_;
   int show_firmware_update_count_ = 0;
+  int show_network_create_count_ = 0;
+  int show_access_code_casting_dialog_count_ = 0;
+  int show_calendar_event_count_ = 0;
+  int show_video_conference_count_ = 0;
   std::string last_bluetooth_settings_device_id_;
+  std::string last_network_settings_network_id_;
+  std::string last_network_type_;
+  int show_channel_info_additional_details_count_ = 0;
+  int show_channel_info_give_feedback_count_ = 0;
+  int show_audio_settings_count_ = 0;
+  bool user_feedback_enabled_ = false;
+  int show_eol_info_count_ = 0;
 };
 
 }  // namespace ash

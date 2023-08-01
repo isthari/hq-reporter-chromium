@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,6 @@
 #include "ash/components/arc/mojom/bluetooth.mojom.h"
 #include "ash/components/arc/mojom/boot_phase_monitor.mojom.h"
 #include "ash/components/arc/mojom/camera.mojom.h"
-#include "ash/components/arc/mojom/cast_receiver.mojom.h"
-#include "ash/components/arc/mojom/cert_store.mojom.h"
 #include "ash/components/arc/mojom/clipboard.mojom.h"
 #include "ash/components/arc/mojom/crash_collector.mojom.h"
 #include "ash/components/arc/mojom/digital_goods.mojom.h"
@@ -31,6 +29,7 @@
 #include "ash/components/arc/mojom/intent_helper.mojom.h"
 #include "ash/components/arc/mojom/keyboard_shortcut.mojom.h"
 #include "ash/components/arc/mojom/keymaster.mojom.h"
+#include "ash/components/arc/mojom/keymint.mojom.h"
 #include "ash/components/arc/mojom/kiosk.mojom.h"
 #include "ash/components/arc/mojom/lock_screen.mojom.h"
 #include "ash/components/arc/mojom/media_session.mojom.h"
@@ -50,9 +49,9 @@
 #include "ash/components/arc/mojom/property.mojom.h"
 #include "ash/components/arc/mojom/rotation_lock.mojom.h"
 #include "ash/components/arc/mojom/screen_capture.mojom.h"
-#include "ash/components/arc/mojom/sensor.mojom.h"
 #include "ash/components/arc/mojom/sharesheet.mojom.h"
 #include "ash/components/arc/mojom/storage_manager.mojom.h"
+#include "ash/components/arc/mojom/system_state.mojom.h"
 #include "ash/components/arc/mojom/timer.mojom.h"
 #include "ash/components/arc/mojom/tracing.mojom.h"
 #include "ash/components/arc/mojom/tts.mojom.h"

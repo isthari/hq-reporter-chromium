@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_message_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chromecast/common/mojom/service_connector.mojom.h"
 #include "chromecast/external_mojo/external_service_support/fake_external_connector.h"
+#include "chromecast/media/api/test/mock_cma_backend_factory.h"
 #include "chromecast/media/audio/mock_cast_audio_manager_helper_delegate.h"
-#include "chromecast/media/cma/test/mock_cma_backend_factory.h"
 #include "media/audio/fake_audio_log_factory.h"
 #include "media/audio/test_audio_thread.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -28,7 +28,7 @@ const char kDefaultAlsaDevice[] = "plug:default";
 
 const ::media::AudioParameters kDefaultAudioParams(
     ::media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-    ::media::CHANNEL_LAYOUT_STEREO,
+    ::media::ChannelLayoutConfig::Stereo(),
     ::media::AudioParameters::kAudioCDSampleRate,
     256);
 
@@ -45,8 +45,8 @@ class CastAudioManagerAlsaTest : public testing::Test {
         &delegate_,
         base::BindRepeating(&CastAudioManagerAlsaTest::GetCmaBackendFactory,
                             base::Unretained(this)),
-        base::ThreadTaskRunnerHandle::Get(), media_thread_.task_runner(),
-        &connector_, false);
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        media_thread_.task_runner(), &connector_, false);
   }
 
   ~CastAudioManagerAlsaTest() override { audio_manager_->Shutdown(); }

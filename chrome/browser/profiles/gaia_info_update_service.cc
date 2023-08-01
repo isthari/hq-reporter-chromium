@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -103,12 +102,9 @@ void GAIAInfoUpdateService::UpdateAnyAccount(const AccountInfo& info) {
     return;
   }
 
-  // These are idempotent, i.e. the second and any further call for the same
+  // This is idempotent, i.e. the second and any further call for the same
   // account info has no further impact.
   entry->AddAccountName(info.full_name);
-  entry->AddAccountCategory(info.hosted_domain == kNoHostedDomainFound
-                                ? AccountCategory::kConsumer
-                                : AccountCategory::kEnterprise);
 }
 
 void GAIAInfoUpdateService::ClearProfileEntry() {
@@ -172,7 +168,6 @@ void GAIAInfoUpdateService::OnAccountsInCookieUpdated(
   // reset the info.
   if (accounts_in_cookie_jar_info.signed_out_accounts.empty()) {
     entry->ClearAccountNames();
-    entry->ClearAccountCategories();
 
     // Regenerate based on the info from signed-in accounts (if not available
     // now, it will be regenerated soon via OnExtendedAccountInfoUpdated() once

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "chrome/browser/ash/ownership/owner_settings_service_ash.h"
 #include "chrome/browser/ash/ownership/owner_settings_service_ash_factory.h"
@@ -178,7 +178,7 @@ OwnerPendingSettingController::GetOwnerSettingsService(Profile* profile) {
 absl::optional<base::Value> OwnerPendingSettingController::GetPendingValue()
     const {
   if (local_state_->HasPrefPath(pending_pref_name_)) {
-    return local_state_->Get(pending_pref_name_)->Clone();
+    return local_state_->GetValue(pending_pref_name_).Clone();
   }
   return absl::nullopt;
 }

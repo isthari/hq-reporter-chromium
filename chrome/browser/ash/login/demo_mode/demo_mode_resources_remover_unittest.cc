@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/values.h"
 #include "chrome/browser/ash/login/demo_mode/demo_mode_test_helper.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
-#include "chromeos/tpm/stub_install_attributes.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -27,10 +27,6 @@
 
 namespace ash {
 namespace {
-
-// TODO(https://crbug.com/1164001): remove after moving to ash::
-using ::chromeos::ScopedStubInstallAttributes;
-using ::chromeos::StubInstallAttributes;
 
 // Key for the pref in local state that tracks accumulated device usage time in
 // seconds.
@@ -171,9 +167,9 @@ class DemoModeResourcesRemoverTest : public testing::Test {
   // inject it into DemoModeResourcesRemover using OverrideTimeForTesting().
   base::SimpleTestTickClock test_clock_;
 
- private:
   std::unique_ptr<ScopedStubInstallAttributes> install_attributes_;
 
+ private:
   base::FilePath demo_resources_path_;
 
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_;
@@ -258,6 +254,7 @@ TEST_F(DemoModeResourcesRemoverTest, LowDiskSpace) {
 
 TEST_F(DemoModeResourcesRemoverTest, LowDiskSpaceInDemoSession) {
   ASSERT_TRUE(CreateDemoModeResources());
+  install_attributes_->Get()->SetDemoMode();
   demo_mode_test_helper_->InitializeSession();
 
   std::unique_ptr<DemoModeResourcesRemover> remover =
@@ -328,6 +325,7 @@ TEST_F(DemoModeResourcesRemoverTest, AttemptRemovalInDemoSession) {
   ASSERT_TRUE(CreateDemoModeResources());
   std::unique_ptr<DemoModeResourcesRemover> remover =
       DemoModeResourcesRemover::CreateIfNeeded(&local_state_);
+  install_attributes_->Get()->SetDemoMode();
   demo_mode_test_helper_->InitializeSession();
 
   absl::optional<DemoModeResourcesRemover::RemovalResult> result;

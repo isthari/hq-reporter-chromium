@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,35 @@ class AuthIconView;
 
 // Implements the logic necessary to show Fingerprint as an auth factor on the
 // lock screen.
-class FingerprintAuthFactorModel : public AuthFactorModel {
+class ASH_EXPORT FingerprintAuthFactorModel : public AuthFactorModel {
  public:
+  class Factory {
+   public:
+    Factory() = default;
+    Factory(const Factory&) = delete;
+    Factory& operator=(const Factory&) = delete;
+
+    static std::unique_ptr<FingerprintAuthFactorModel> Create(
+        FingerprintState state);
+
+    static void SetFactoryForTesting(Factory* factory);
+
+   protected:
+    virtual ~Factory() = default;
+    virtual std::unique_ptr<FingerprintAuthFactorModel> CreateInstance(
+        FingerprintState state) = 0;
+
+   private:
+    static Factory* factory_instance_;
+  };
+
   explicit FingerprintAuthFactorModel(FingerprintState state);
   FingerprintAuthFactorModel(FingerprintAuthFactorModel&) = delete;
   FingerprintAuthFactorModel& operator=(FingerprintAuthFactorModel&) = delete;
   ~FingerprintAuthFactorModel() override;
 
   void SetFingerprintState(FingerprintState state);
+  void ResetUIState();
   void NotifyFingerprintAuthResult(bool result);
 
   // If |available| is false, forces |GetAuthFactorState()| to return

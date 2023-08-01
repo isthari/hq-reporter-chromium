@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@ class CookieControlsView : public base::CheckedObserver {
                                int blocked_cookies) = 0;
   virtual void OnCookiesCountChanged(int allowed_cookies,
                                      int blocked_cookies) = 0;
+  virtual void OnStatefulBounceCountChanged(int bounce_count) = 0;
 };
 
 }  // namespace content_settings

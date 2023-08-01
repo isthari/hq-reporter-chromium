@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,16 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/accessibility/accessibility_labels_service.h"
@@ -36,19 +36,29 @@
 #include "chrome/browser/file_system_access/chrome_file_system_access_permission_context.h"
 #include "chrome/browser/file_system_access/file_system_access_permission_context_factory.h"
 #include "chrome/browser/heavy_ad_intervention/heavy_ad_service_factory.h"
+#include "chrome/browser/k_anonymity_service/k_anonymity_service_factory.h"
 #include "chrome/browser/notifications/platform_notification_service_factory.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
+#include "chrome/browser/origin_trials/origin_trials_factory.h"
 #include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
 #include "chrome/browser/profiles/profile_key.h"
+#include "chrome/browser/profiles/profile_metrics.h"
+#include "chrome/browser/reduce_accept_language/reduce_accept_language_factory.h"
 #include "chrome/browser/ssl/stateful_ssl_host_state_delegate_factory.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/transition_manager/full_browser_transition_manager.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
 #include "chrome/browser/ui/zoom/chrome_zoom_level_otr_delegate.h"
+#include "chrome/browser/webid/federated_identity_api_permission_context.h"
+#include "chrome/browser/webid/federated_identity_api_permission_context_factory.h"
+#include "chrome/browser/webid/federated_identity_auto_reauthn_permission_context.h"
+#include "chrome/browser/webid/federated_identity_auto_reauthn_permission_context_factory.h"
+#include "chrome/browser/webid/federated_identity_permission_context.h"
+#include "chrome/browser/webid/federated_identity_permission_context_factory.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -61,9 +71,11 @@
 #include "components/keyed_service/core/simple_key_map.h"
 #include "components/keyed_service/core/simple_keyed_service_factory.h"
 #include "components/permissions/permission_manager.h"
+#include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/profile_metrics/browser_profile_type.h"
 #include "components/security_interstitials/content/stateful_ssl_host_state_delegate.h"
+#include "components/supervised_user/core/common/buildflags.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "components/user_prefs/user_prefs.h"
 #include "components/zoom/zoom_event_manager.h"
@@ -92,6 +104,10 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/startup/browser_params_proxy.h"
+#endif
+
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
@@ -109,8 +125,8 @@
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/content_settings/content_settings_supervised_provider.h"
-#include "chrome/browser/supervised_user/supervised_user_settings_service.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
+#include "components/supervised_user/core/browser/supervised_user_settings_service.h"
 #endif
 
 using content::BrowserThread;
@@ -184,7 +200,7 @@ void OffTheRecordProfileImpl::Init() {
   // Always crash when incognito is not available.
   CHECK(!IsIncognitoProfile() ||
         IncognitoModePrefs::GetAvailability(profile_->GetPrefs()) !=
-            IncognitoModePrefs::Availability::kDisabled);
+            policy::IncognitoModeAvailability::kDisabled);
 
   TrackZoomLevelsFromParent();
 
@@ -208,7 +224,12 @@ void OffTheRecordProfileImpl::Init() {
   // AccessibilityLabelsService has a default prefs behavior in incognito.
   AccessibilityLabelsService::InitOffTheRecordPrefs(this);
 
-  HeavyAdServiceFactory::GetForBrowserContext(this)->InitializeOffTheRecord();
+  // The ad service might not be available for some irregular profiles, like the
+  // System Profile.
+  if (heavy_ad_intervention::HeavyAdService* heavy_ad_service =
+          HeavyAdServiceFactory::GetForBrowserContext(this)) {
+    heavy_ad_service->InitializeOffTheRecord();
+  }
 
   key_->SetProtoDatabaseProvider(
       GetDefaultStoragePartition()->GetProtoDatabaseProvider());
@@ -232,6 +253,11 @@ OffTheRecordProfileImpl::~OffTheRecordProfileImpl() {
 
   FullBrowserTransitionManager::Get()->OnProfileDestroyed(this);
 
+  // Records the number of active KeyedServices for SystemProfile right before
+  // shutting them down.
+  if (IsSystemProfile())
+    ProfileMetrics::LogSystemProfileKeyedServicesCount(this);
+
   // The SimpleDependencyManager should always be passed after the
   // BrowserContextDependencyManager. This is because the KeyedService instances
   // in the BrowserContextDependencyManager's dependency graph can depend on the
@@ -254,7 +280,7 @@ OffTheRecordProfileImpl::~OffTheRecordProfileImpl() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Bypass profile lifetime recording for ChromeOS helper profiles (sign-in,
   // lockscreen, etc).
-  if (!ash::ProfileHelper::IsRegularProfile(profile_))
+  if (!ash::ProfileHelper::IsUserProfile(profile_))
     return;
 #endif
   // Store incognito lifetime and navigations count histogram.
@@ -334,7 +360,9 @@ bool OffTheRecordProfileImpl::IsOffTheRecord() const {
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
 bool OffTheRecordProfileImpl::IsMainProfile() const {
-  return false;
+  return chromeos::BrowserParamsProxy::Get()->SessionType() ==
+             crosapi::mojom::SessionType::kGuestSession &&
+         profile_->IsMainProfile();
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
@@ -381,7 +409,7 @@ const Profile* OffTheRecordProfileImpl::GetOriginalProfile() const {
 }
 
 ExtensionSpecialStoragePolicy*
-    OffTheRecordProfileImpl::GetExtensionSpecialStoragePolicy() {
+OffTheRecordProfileImpl::GetExtensionSpecialStoragePolicy() {
   return GetOriginalProfile()->GetExtensionSpecialStoragePolicy();
 }
 
@@ -419,15 +447,14 @@ policy::UserCloudPolicyManagerAsh*
 OffTheRecordProfileImpl::GetUserCloudPolicyManagerAsh() {
   return GetOriginalProfile()->GetUserCloudPolicyManagerAsh();
 }
-
-policy::ActiveDirectoryPolicyManager*
-OffTheRecordProfileImpl::GetActiveDirectoryPolicyManager() {
-  return GetOriginalProfile()->GetActiveDirectoryPolicyManager();
-}
 #else
 policy::UserCloudPolicyManager*
 OffTheRecordProfileImpl::GetUserCloudPolicyManager() {
   return GetOriginalProfile()->GetUserCloudPolicyManager();
+}
+policy::ProfileCloudPolicyManager*
+OffTheRecordProfileImpl::GetProfileCloudPolicyManager() {
+  return GetOriginalProfile()->GetProfileCloudPolicyManager();
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -462,7 +489,7 @@ OffTheRecordProfileImpl::GetPlatformNotificationService() {
 content::PushMessagingService*
 OffTheRecordProfileImpl::GetPushMessagingService() {
   // TODO(johnme): Support push messaging in incognito if possible.
-  return NULL;
+  return nullptr;
 }
 
 content::StorageNotificationService*
@@ -500,6 +527,11 @@ OffTheRecordProfileImpl::GetBackgroundSyncController() {
 content::BrowsingDataRemoverDelegate*
 OffTheRecordProfileImpl::GetBrowsingDataRemoverDelegate() {
   return ChromeBrowsingDataRemoverDelegateFactory::GetForProfile(this);
+}
+
+content::ReduceAcceptLanguageControllerDelegate*
+OffTheRecordProfileImpl::GetReduceAcceptLanguageControllerDelegate() {
+  return ReduceAcceptLanguageFactory::GetForProfile(this);
 }
 
 std::unique_ptr<media::VideoDecodePerfHistory>
@@ -570,11 +602,9 @@ bool OffTheRecordProfileImpl::WasCreatedByVersionOrLater(
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 void OffTheRecordProfileImpl::ChangeAppLocale(const std::string& locale,
-                                              AppLocaleChangedVia) {
-}
+                                              AppLocaleChangedVia) {}
 
-void OffTheRecordProfileImpl::OnLogin() {
-}
+void OffTheRecordProfileImpl::OnLogin() {}
 
 void OffTheRecordProfileImpl::InitChromeOSPreferences() {
   // The incognito profile shouldn't have Chrome OS's preferences.
@@ -647,9 +677,8 @@ void OffTheRecordProfileImpl::OnParentZoomLevelChanged(
       host_zoom_map->SetZoomLevelForHost(change.host, change.zoom_level);
       return;
     case HostZoomMap::ZOOM_CHANGED_FOR_SCHEME_AND_HOST:
-      host_zoom_map->SetZoomLevelForHostAndScheme(change.scheme,
-          change.host,
-          change.zoom_level);
+      host_zoom_map->SetZoomLevelForHostAndScheme(change.scheme, change.host,
+                                                  change.zoom_level);
       return;
   }
 }
@@ -667,4 +696,25 @@ void OffTheRecordProfileImpl::UpdateDefaultZoomLevel() {
 
 void OffTheRecordProfileImpl::RecordPrimaryMainFrameNavigation() {
   main_frame_navigations_++;
+}
+
+content::FederatedIdentityPermissionContextDelegate*
+OffTheRecordProfileImpl::GetFederatedIdentityPermissionContext() {
+  return FederatedIdentityPermissionContextFactory::GetForProfile(this);
+}
+
+content::FederatedIdentityApiPermissionContextDelegate*
+OffTheRecordProfileImpl::GetFederatedIdentityApiPermissionContext() {
+  return FederatedIdentityApiPermissionContextFactory::GetForProfile(this);
+}
+
+content::FederatedIdentityAutoReauthnPermissionContextDelegate*
+OffTheRecordProfileImpl::GetFederatedIdentityAutoReauthnPermissionContext() {
+  return FederatedIdentityAutoReauthnPermissionContextFactory::GetForProfile(
+      this);
+}
+
+content::KAnonymityServiceDelegate*
+OffTheRecordProfileImpl::GetKAnonymityServiceDelegate() {
+  return KAnonymityServiceFactory::GetForProfile(this);
 }

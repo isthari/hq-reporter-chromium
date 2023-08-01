@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 #include "ash/test/ash_test_base.h"
 #include "base/test/bind.h"
 #include "chrome/browser/ash/policy/dlp/dlp_content_manager_ash.h"
-#include "chrome/browser/ash/policy/dlp/mock_dlp_content_manager_ash.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_content_observer.h"
+#include "chrome/browser/chromeos/policy/dlp/mock_dlp_content_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/window.h"
@@ -44,9 +45,8 @@ class DlpAshTest : public ash::AshTestBase {
 };
 
 TEST_F(DlpAshTest, CheckScreenShareRestrictionRootWindowAllowed) {
-  testing::StrictMock<policy::MockDlpContentManagerAsh>
-      mock_dlp_content_manager;
-  policy::ScopedDlpContentManagerAshForTesting scoped_dlp_content_manager(
+  testing::StrictMock<policy::MockDlpContentManager> mock_dlp_content_manager;
+  policy::ScopedDlpContentObserverForTesting scoped_dlp_content_observer(
       &mock_dlp_content_manager);
   EXPECT_CALL(mock_dlp_content_manager, CheckScreenShareRestriction)
       .WillOnce([](const content::DesktopMediaID& media_id,
@@ -68,9 +68,8 @@ TEST_F(DlpAshTest, CheckScreenShareRestrictionRootWindowAllowed) {
 }
 
 TEST_F(DlpAshTest, CheckScreenShareRestrictionRootWindowNotAllowed) {
-  testing::StrictMock<policy::MockDlpContentManagerAsh>
-      mock_dlp_content_manager;
-  policy::ScopedDlpContentManagerAshForTesting scoped_dlp_content_manager(
+  testing::StrictMock<policy::MockDlpContentManager> mock_dlp_content_manager;
+  policy::ScopedDlpContentObserverForTesting scoped_dlp_content_observer(
       &mock_dlp_content_manager);
   EXPECT_CALL(mock_dlp_content_manager, CheckScreenShareRestriction)
       .WillOnce([](const content::DesktopMediaID& media_id,
@@ -92,9 +91,8 @@ TEST_F(DlpAshTest, CheckScreenShareRestrictionRootWindowNotAllowed) {
 }
 
 TEST_F(DlpAshTest, CheckScreenShareRestrictionInvalidWindow) {
-  testing::StrictMock<policy::MockDlpContentManagerAsh>
-      mock_dlp_content_manager;
-  policy::ScopedDlpContentManagerAshForTesting scoped_dlp_content_manager(
+  testing::StrictMock<policy::MockDlpContentManager> mock_dlp_content_manager;
+  policy::ScopedDlpContentObserverForTesting scoped_dlp_content_observer(
       &mock_dlp_content_manager);
 
   mojom::ScreenShareAreaPtr area = mojom::ScreenShareArea::New();
@@ -110,30 +108,29 @@ TEST_F(DlpAshTest, CheckScreenShareRestrictionInvalidWindow) {
 
 TEST_F(DlpAshTest, ScreenShareStarted) {
   testing::StrictMock<MockStateChangeDelegate> delegate;
-  testing::StrictMock<policy::MockDlpContentManagerAsh>
-      mock_dlp_content_manager;
-  policy::ScopedDlpContentManagerAshForTesting scoped_dlp_content_manager(
+  testing::StrictMock<policy::MockDlpContentManager> mock_dlp_content_manager;
+  policy::ScopedDlpContentObserverForTesting scoped_dlp_content_observer(
       &mock_dlp_content_manager);
 
   base::RepeatingClosure stop_callback;
   content::MediaStreamUI::StateChangeCallback state_change_callback;
   content::DesktopMediaID media_id;
 
-  EXPECT_CALL(mock_dlp_content_manager, OnScreenCaptureStarted)
-      .WillOnce(
-          [&](const std::string& label,
-              std::vector<content::DesktopMediaID> ids,
-              const std::u16string& application_title,
-              base::RepeatingClosure stop_cb,
-              content::MediaStreamUI::StateChangeCallback state_change_cb) {
-            EXPECT_EQ(kScreenShareLabel, label);
-            EXPECT_EQ(1u, ids.size());
-            EXPECT_EQ(kAppId, application_title);
-            stop_callback = std::move(stop_cb);
-            state_change_callback = std::move(state_change_cb);
-            media_id = ids[0];
-            EXPECT_EQ(content::DesktopMediaID::TYPE_SCREEN, media_id.type);
-          });
+  EXPECT_CALL(mock_dlp_content_manager, OnScreenShareStarted)
+      .WillOnce([&](const std::string& label,
+                    std::vector<content::DesktopMediaID> ids,
+                    const std::u16string& application_title,
+                    base::RepeatingClosure stop_cb,
+                    content::MediaStreamUI::StateChangeCallback state_change_cb,
+                    content::MediaStreamUI::SourceCallback source_cb) {
+        EXPECT_EQ(kScreenShareLabel, label);
+        EXPECT_EQ(1u, ids.size());
+        EXPECT_EQ(kAppId, application_title);
+        stop_callback = std::move(stop_cb);
+        state_change_callback = std::move(state_change_cb);
+        media_id = ids[0];
+        EXPECT_EQ(content::DesktopMediaID::TYPE_SCREEN, media_id.type);
+      });
 
   mojom::ScreenShareAreaPtr area = mojom::ScreenShareArea::New();
 
@@ -156,9 +153,8 @@ TEST_F(DlpAshTest, ScreenShareStarted) {
 
 TEST_F(DlpAshTest, ScreenShareStartedInvalidWindow) {
   testing::StrictMock<MockStateChangeDelegate> delegate;
-  testing::StrictMock<policy::MockDlpContentManagerAsh>
-      mock_dlp_content_manager;
-  policy::ScopedDlpContentManagerAshForTesting scoped_dlp_content_manager(
+  testing::StrictMock<policy::MockDlpContentManager> mock_dlp_content_manager;
+  policy::ScopedDlpContentObserverForTesting scoped_dlp_content_observer(
       &mock_dlp_content_manager);
 
   mojom::ScreenShareAreaPtr area = mojom::ScreenShareArea::New();
@@ -170,12 +166,11 @@ TEST_F(DlpAshTest, ScreenShareStartedInvalidWindow) {
 }
 
 TEST_F(DlpAshTest, ScreenShareStopped) {
-  testing::StrictMock<policy::MockDlpContentManagerAsh>
-      mock_dlp_content_manager;
-  policy::ScopedDlpContentManagerAshForTesting scoped_dlp_content_manager(
+  testing::StrictMock<policy::MockDlpContentManager> mock_dlp_content_manager;
+  policy::ScopedDlpContentObserverForTesting scoped_dlp_content_observer(
       &mock_dlp_content_manager);
 
-  EXPECT_CALL(mock_dlp_content_manager, OnScreenCaptureStopped)
+  EXPECT_CALL(mock_dlp_content_manager, OnScreenShareStopped)
       .WillOnce([&](const std::string& label,
                     const content::DesktopMediaID& media_id) {
         EXPECT_EQ(kScreenShareLabel, label);
@@ -187,9 +182,8 @@ TEST_F(DlpAshTest, ScreenShareStopped) {
 }
 
 TEST_F(DlpAshTest, ScreenShareStoppedInvalidWindow) {
-  testing::StrictMock<policy::MockDlpContentManagerAsh>
-      mock_dlp_content_manager;
-  policy::ScopedDlpContentManagerAshForTesting scoped_dlp_content_manager(
+  testing::StrictMock<policy::MockDlpContentManager> mock_dlp_content_manager;
+  policy::ScopedDlpContentObserverForTesting scoped_dlp_content_observer(
       &mock_dlp_content_manager);
 
   mojom::ScreenShareAreaPtr area = mojom::ScreenShareArea::New();

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,20 +8,22 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "components/services/storage/public/cpp/buckets/bucket_info.h"
 #include "components/services/storage/public/cpp/buckets/constants.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/isolation_context.h"
+#include "content/browser/origin_agent_cluster_isolation_state.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_context.h"
@@ -33,6 +35,7 @@
 #include "storage/browser/quota/special_storage_policy.h"
 #include "storage/browser/test/mock_quota_manager.h"
 #include "storage/browser/test/mock_quota_manager_proxy.h"
+#include "storage/browser/test/mock_special_storage_policy.h"
 #include "storage/browser/test/quota_manager_proxy_sync.h"
 #include "storage/common/database/database_identifier.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -52,7 +55,9 @@ std::u16string ConstructVfsFileName(const url::Origin& origin,
 
 class WebDatabaseHostImplTest : public ::testing::Test {
  public:
-  WebDatabaseHostImplTest() = default;
+  WebDatabaseHostImplTest()
+      : special_storage_policy_(
+            base::MakeRefCounted<storage::MockSpecialStoragePolicy>()) {}
   WebDatabaseHostImplTest(const WebDatabaseHostImplTest&) = delete;
   WebDatabaseHostImplTest& operator=(const WebDatabaseHostImplTest&) = delete;
   ~WebDatabaseHostImplTest() override = default;
@@ -64,10 +69,11 @@ class WebDatabaseHostImplTest : public ::testing::Test {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
     quota_manager_ = base::MakeRefCounted<storage::MockQuotaManager>(
         /*is_incognito=*/false, data_dir_.GetPath(),
-        base::ThreadTaskRunnerHandle::Get(),
-        /*special_storage_policy=*/nullptr);
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        special_storage_policy_);
     quota_manager_proxy_ = base::MakeRefCounted<storage::MockQuotaManagerProxy>(
-        quota_manager_.get(), base::ThreadTaskRunnerHandle::Get());
+        quota_manager_.get(),
+        base::SingleThreadTaskRunner::GetCurrentDefault());
 
     db_tracker_ = storage::DatabaseTracker::Create(
         base::FilePath(),
@@ -134,8 +140,11 @@ class WebDatabaseHostImplTest : public ::testing::Test {
 
   void LockProcessToURL(const GURL& url) {
     ChildProcessSecurityPolicyImpl::GetInstance()->LockProcessForTesting(
-        IsolationContext(BrowsingInstanceId(1), browser_context(),
-                         /*is_guest=*/false),
+        IsolationContext(
+            BrowsingInstanceId(1), browser_context(),
+            /*is_guest=*/false, /*is_fenced=*/false,
+            OriginAgentClusterIsolationState::CreateForDefaultIsolation(
+                &browser_context_)),
         process_id(), url);
   }
 
@@ -146,8 +155,11 @@ class WebDatabaseHostImplTest : public ::testing::Test {
   }
 
  private:
+  scoped_refptr<storage::MockSpecialStoragePolicy> special_storage_policy_;
+
   base::ScopedTempDir data_dir_;
   BrowserTaskEnvironment task_environment_;
+
   TestBrowserContext browser_context_;
   std::unique_ptr<MockRenderProcessHost> render_process_host_;
   scoped_refptr<storage::DatabaseTracker> db_tracker_;
@@ -189,11 +201,13 @@ TEST_F(WebDatabaseHostImplTest, OpenFileCreatesBucket) {
       quota_manager_proxy_sync.GetBucket(
           blink::StorageKey::CreateFromStringForTesting(example_url),
           storage::kDefaultBucketName, blink::mojom::StorageType::kTemporary);
-  EXPECT_TRUE(result.ok());
+  ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result->name, storage::kDefaultBucketName);
   EXPECT_EQ(result->storage_key,
             blink::StorageKey::CreateFromStringForTesting(example_url));
   EXPECT_GT(result->id.value(), 0);
+
+  security_policy->ClearIsolatedOriginsForTesting();
 }
 
 TEST_F(WebDatabaseHostImplTest, GetOrCreateBucketError) {
@@ -225,6 +239,8 @@ TEST_F(WebDatabaseHostImplTest, GetOrCreateBucketError) {
                          }));
       }));
   run_loop.Run();
+
+  security_policy->ClearIsolatedOriginsForTesting();
 }
 
 TEST_F(WebDatabaseHostImplTest, BadMessagesUnauthorized) {
@@ -282,6 +298,8 @@ TEST_F(WebDatabaseHostImplTest, BadMessagesUnauthorized) {
   CheckUnauthorizedOrigin([&]() {
     host()->HandleSqliteError(incorrect_origin, db_name, /*error=*/0);
   });
+
+  security_policy->ClearIsolatedOriginsForTesting();
 }
 
 TEST_F(WebDatabaseHostImplTest, BadMessagesInvalid) {
@@ -372,6 +390,7 @@ TEST_F(WebDatabaseHostImplTest, ProcessShutdown) {
   }
 
   mojo::SetDefaultProcessErrorHandler(base::NullCallback());
+  security_policy->ClearIsolatedOriginsForTesting();
 }
 
 }  // namespace

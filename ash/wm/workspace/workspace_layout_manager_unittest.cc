@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,18 @@
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/accessibility/test_accessibility_controller_client.h"
 #include "ash/app_list/test/app_list_test_helper.h"
-#include "ash/components/audio/sounds.h"
 #include "ash/constants/app_types.h"
 #include "ash/frame/non_client_frame_view_ash.h"
 #include "ash/keyboard/ui/keyboard_ui.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/keyboard_util.h"
 #include "ash/keyboard/ui/test/keyboard_test_util.h"
+#include "ash/public/cpp/app_list/app_list_controller.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
 #include "ash/public/cpp/shelf_config.h"
+#include "ash/public/cpp/shelf_prefs.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "ash/public/cpp/window_backdrop.h"
@@ -37,11 +39,11 @@
 #include "ash/test/test_window_builder.h"
 #include "ash/wallpaper/wallpaper_controller_test_api.h"
 #include "ash/wm/always_on_top_controller.h"
+#include "ash/wm/client_controlled_state.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/fullscreen_window_finder.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_grid.h"
-#include "ash/wm/overview/rounded_label_widget.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_properties.h"
@@ -52,8 +54,11 @@
 #include "ash/wm/workspace/backdrop_controller.h"
 #include "ash/wm/workspace/workspace_window_resizer.h"
 #include "ash/wm/workspace_controller_test_api.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_feature_list.h"
+#include "chromeos/ash/components/audio/sounds.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/focus_client.h"
@@ -64,6 +69,7 @@
 #include "ui/base/ui_base_switches.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/layer_animator.h"
 #include "ui/compositor/layer_type.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/display/display.h"
@@ -135,6 +141,13 @@ display::Display GetDisplayNearestWindow(aura::Window* window) {
   return display::Screen::GetScreen()->GetDisplayNearestWindow(window);
 }
 
+display::ManagedDisplayInfo CreateDisplayInfo(int64_t id, gfx::Rect bounds) {
+  display::ManagedDisplayInfo info = display::CreateDisplayInfo(id, bounds);
+  info.SetRotation(display::Display::ROTATE_0,
+                   display::Display::RotationSource::ACTIVE);
+  return info;
+}
+
 class ScopedStickyKeyboardEnabler {
  public:
   ScopedStickyKeyboardEnabler()
@@ -152,7 +165,8 @@ class ScopedStickyKeyboardEnabler {
   }
 
  private:
-  AccessibilityControllerImpl* accessibility_controller_;
+  raw_ptr<AccessibilityControllerImpl, ExperimentalAsh>
+      accessibility_controller_;
   const bool enabled_;
 };
 
@@ -387,7 +401,7 @@ class DontClobberRestoreBoundsWindowObserver : public aura::WindowObserver {
   }
 
  private:
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
 };
 
 // Creates a window, maximized the window and from within the maximized
@@ -578,9 +592,10 @@ TEST_F(WorkspaceLayoutManagerTest,
   std::unique_ptr<aura::Window> window(
       CreateTestWindow(gfx::Rect(10, 20, 100, 200)));
   WindowState* window_state = WindowState::Get(window.get());
-  gfx::Insets insets(0, 0, 56, 0);
-  Shell::Get()->SetDisplayWorkAreaInsets(window.get(), insets);
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
+  auto insets = gfx::Insets::TLBR(0, 0, 56, 0);
+  WorkAreaInsets::ForWindow(window.get())
+      ->UpdateWorkAreaInsetsForTest(window.get(), gfx::Rect(), insets, insets);
+  const WindowSnapWMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
   window_state->OnWMEvent(&snap_left);
   EXPECT_EQ(WindowStateType::kPrimarySnapped, window_state->GetStateType());
   const gfx::Rect kWorkAreaBounds = GetPrimaryDisplay().work_area();
@@ -591,13 +606,16 @@ TEST_F(WorkspaceLayoutManagerTest,
 
   ui::ScopedAnimationDurationScaleMode test_duration_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
-  // The following two SetDisplayWorkAreaInsets calls simulate the case of
+  // The following two `UpdateWorkAreaInsetsForTest` calls simulate the case of
   // crbug.com/673803 that work area first becomes fullscreen and then returns
   // to the original state.
-  Shell::Get()->SetDisplayWorkAreaInsets(window.get(), gfx::Insets(0, 0, 0, 0));
+  WorkAreaInsets::ForWindow(window.get())
+      ->UpdateWorkAreaInsetsForTest(window.get(), gfx::Rect(), gfx::Insets(),
+                                    gfx::Insets());
   ui::LayerAnimator* animator = window->layer()->GetAnimator();
   EXPECT_TRUE(animator->is_animating());
-  Shell::Get()->SetDisplayWorkAreaInsets(window.get(), insets);
+  WorkAreaInsets::ForWindow(window.get())
+      ->UpdateWorkAreaInsetsForTest(window.get(), gfx::Rect(), insets, insets);
   animator->StopAnimating();
   EXPECT_FALSE(animator->is_animating());
   EXPECT_EQ(expected_bounds.ToString(), window->bounds().ToString());
@@ -612,7 +630,7 @@ TEST_F(WorkspaceLayoutManagerTest, AdjustSnappedBoundsWidth) {
   std::unique_ptr<aura::Window> window1(
       CreateTestWindow(gfx::Rect(10, 20, 100, 200)));
   WindowState* window1_state = WindowState::Get(window1.get());
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
+  const WindowSnapWMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
   window1_state->OnWMEvent(&snap_left);
   const gfx::Rect work_area =
       display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
@@ -623,7 +641,7 @@ TEST_F(WorkspaceLayoutManagerTest, AdjustSnappedBoundsWidth) {
   std::unique_ptr<aura::Window> window2(
       CreateTestWindow(gfx::Rect(10, 20, 100, 200)));
   WindowState* window2_state = WindowState::Get(window2.get());
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
+  const WindowSnapWMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
   window2_state->OnWMEvent(&snap_right);
   const gfx::Rect expected_right_snapped_bounds =
       gfx::Rect(work_area.right() - work_area.width() / 2, work_area.y(),
@@ -670,8 +688,10 @@ TEST_F(WorkspaceLayoutManagerTest,
   window2->Show();
 
   gfx::Rect expected_bounds = window2->bounds();
-  Shell::Get()->SetDisplayWorkAreaInsets(window.get(),
-                                         gfx::Insets(50, 0, 0, 0));
+  WorkAreaInsets::ForWindow(window.get())
+      ->UpdateWorkAreaInsetsForTest(window.get(), gfx::Rect(),
+                                    gfx::Insets::TLBR(50, 0, 0, 0),
+                                    gfx::Insets::TLBR(50, 0, 0, 0));
   EXPECT_EQ(expected_bounds.ToString(), window2->bounds().ToString());
 }
 
@@ -686,23 +706,310 @@ TEST_F(WorkspaceLayoutManagerTest, EnsureWindowStateInOverlay) {
   EXPECT_TRUE(window->GetProperty(kWindowStateKey));
 }
 
-// Make sure window bounds is correct with session state lock/unlock.
+// Make sure window bounds is correct with session state lock/unlock. It tests
+// cases with various shelf settings.
 TEST_F(WorkspaceLayoutManagerTest, WindowBoundsWithSessionState) {
   TestSessionControllerClient* client = GetSessionControllerClient();
   Shelf* shelf = GetPrimaryShelf();
-  shelf->SetAlignment(ShelfAlignment::kLeft);
-  ASSERT_EQ(ShelfAlignment::kLeft, shelf->alignment());
 
-  const gfx::Rect bounds =
-      WorkAreaInsets::ForWindow(Shell::GetPrimaryRootWindow())
-          ->ComputeStableWorkArea();
-  std::unique_ptr<aura::Window> window = CreateTestWindow(bounds);
-  EXPECT_EQ(bounds, window->bounds());
+  constexpr ShelfAlignment alignments[] = {
+      ShelfAlignment::kLeft, ShelfAlignment::kRight, ShelfAlignment::kBottom};
+  constexpr ShelfAutoHideBehavior auto_hide_behaviors[] = {
+      ShelfAutoHideBehavior::kAlways, ShelfAutoHideBehavior::kNever};
 
+  // Test normal window.
+  for (auto alignment : alignments) {
+    for (auto auto_hide_behavior : auto_hide_behaviors) {
+      SCOPED_TRACE("Primary shelf alignment: " +
+                   base::NumberToString(static_cast<int>(alignment)));
+      SCOPED_TRACE("Primary shelf auto hide behavior: " +
+                   base::NumberToString(static_cast<int>(auto_hide_behavior)));
+
+      // Update the shelf setting.
+      shelf->SetAlignment(alignment);
+      shelf->SetAutoHideBehavior(auto_hide_behavior);
+      ASSERT_EQ(alignment, shelf->alignment());
+      ASSERT_EQ(auto_hide_behavior, shelf->auto_hide_behavior());
+
+      // Create the test window, and set its bounds to match the entire
+      // workarea.
+      std::unique_ptr<aura::Window> window = CreateTestWindow();
+      const gfx::Rect bounds =
+          screen_util::GetDisplayWorkAreaBoundsInParent(window.get());
+      window->SetBounds(bounds);
+      EXPECT_EQ(bounds, window->bounds());
+
+      // Lock/unlock the session, the test window should remain the same bounds.
+      client->SetSessionState(session_manager::SessionState::LOCKED);
+      EXPECT_EQ(bounds, window->bounds());
+      client->SetSessionState(session_manager::SessionState::ACTIVE);
+      EXPECT_EQ(bounds, window->bounds());
+    }
+  }
+
+  // Test maximized window.
+  for (auto alignment : alignments) {
+    for (auto auto_hide_behavior : auto_hide_behaviors) {
+      SCOPED_TRACE("Primary shelf alignment: " +
+                   base::NumberToString(static_cast<int>(alignment)));
+      SCOPED_TRACE("Primary shelf auto hide behavior: " +
+                   base::NumberToString(static_cast<int>(auto_hide_behavior)));
+
+      // Update the shelf setting.
+      shelf->SetAlignment(alignment);
+      shelf->SetAutoHideBehavior(auto_hide_behavior);
+      ASSERT_EQ(alignment, shelf->alignment());
+      ASSERT_EQ(auto_hide_behavior, shelf->auto_hide_behavior());
+
+      // Create the test window, and maximize it.
+      std::unique_ptr<aura::Window> window = CreateTestWindow();
+      const gfx::Rect bounds =
+          screen_util::GetDisplayWorkAreaBoundsInParent(window.get());
+      WindowState::Get(window.get())->Maximize();
+      EXPECT_EQ(bounds, window->bounds());
+
+      // Lock/unlock the session, the test window should remain the same bounds.
+      client->SetSessionState(session_manager::SessionState::LOCKED);
+      EXPECT_EQ(bounds, window->bounds());
+      client->SetSessionState(session_manager::SessionState::ACTIVE);
+      EXPECT_EQ(bounds, window->bounds());
+    }
+  }
+}
+
+// Make sure maximized window bounds is correct with multiple displays. It tests
+// cases when disconnecting secondary display in lock session with various shelf
+// settings.
+TEST_F(WorkspaceLayoutManagerTest, WindowBoundsWithMultiDisplays) {
+  TestSessionControllerClient* client = GetSessionControllerClient();
+
+  constexpr ShelfAlignment alignments[] = {
+      ShelfAlignment::kLeft, ShelfAlignment::kRight, ShelfAlignment::kBottom};
+  constexpr ShelfAutoHideBehavior auto_hide_behaviors[] = {
+      ShelfAutoHideBehavior::kAlways, ShelfAutoHideBehavior::kNever};
+
+  // Test maximized window.
+  for (auto primary_alignment : alignments) {
+    for (auto primary_auto_hide_behavior : auto_hide_behaviors) {
+      for (auto secondary_alignment : alignments) {
+        for (auto secondary_auto_hide_behavior : auto_hide_behaviors) {
+          SCOPED_TRACE(
+              "Primary shelf alignment: " +
+              base::NumberToString(static_cast<int>(primary_alignment)));
+          SCOPED_TRACE("Primary shelf auto hide behavior: " +
+                       base::NumberToString(
+                           static_cast<int>(primary_auto_hide_behavior)));
+          SCOPED_TRACE(
+              "Secondary shelf alignment: " +
+              base::NumberToString(static_cast<int>(secondary_alignment)));
+          SCOPED_TRACE("Secondary shelf auto hide behavior: " +
+                       base::NumberToString(
+                           static_cast<int>(secondary_auto_hide_behavior)));
+
+          // Update to 2 displays.
+          UpdateDisplay("800x600,500x400");
+          Shelf* primary_shelf = GetPrimaryShelf();
+          Shelf* secondary_shelf =
+              Shell::GetAllRootWindowControllers().back()->shelf();
+
+          // Update shelf for the primary display.
+          primary_shelf->SetAlignment(primary_alignment);
+          primary_shelf->SetAutoHideBehavior(primary_auto_hide_behavior);
+          ASSERT_EQ(primary_alignment, primary_shelf->alignment());
+          ASSERT_EQ(primary_auto_hide_behavior,
+                    primary_shelf->auto_hide_behavior());
+
+          // Update shelf for the secondary display.
+          secondary_shelf->SetAlignment(secondary_alignment);
+          secondary_shelf->SetAutoHideBehavior(secondary_auto_hide_behavior);
+          ASSERT_EQ(secondary_alignment, secondary_shelf->alignment());
+          ASSERT_EQ(secondary_auto_hide_behavior,
+                    secondary_shelf->auto_hide_behavior());
+
+          // Create a test window, move it to the secondary display, and
+          // maximize it.
+          std::unique_ptr<aura::Window> window = CreateTestWindow();
+          window_util::MoveWindowToDisplay(window.get(),
+                                           GetSecondaryDisplay().id());
+          WindowState::Get(window.get())->Maximize();
+          EXPECT_EQ(screen_util::GetDisplayWorkAreaBoundsInParent(window.get()),
+                    window->bounds());
+
+          // Lock the session, disconnect the secondary display, then unlock the
+          // session. The maximized window should be moved to the primary
+          // display with correct bounds.
+          client->SetSessionState(session_manager::SessionState::LOCKED);
+          UpdateDisplay("800x600");
+          client->SetSessionState(session_manager::SessionState::ACTIVE);
+          EXPECT_EQ(screen_util::GetDisplayWorkAreaBoundsInParent(window.get()),
+                    window->bounds());
+        }
+      }
+    }
+  }
+}
+
+// Make sure maximized window bounds is correct with external display
+// disconnected in docked mode.
+// Please see b/252557955.
+TEST_F(WorkspaceLayoutManagerTest,
+       WindowBoundsWithExternalDisplayDisconnected) {
+  // Set up two displays.
+  const display::ManagedDisplayInfo internal_display_info =
+      CreateDisplayInfo(1, gfx::Rect(800, 600));
+  const display::ManagedDisplayInfo external_display_info =
+      CreateDisplayInfo(2, gfx::Rect(1, 1, 900, 700));
+  std::vector<display::ManagedDisplayInfo> display_info_list;
+  display_info_list.push_back(internal_display_info);
+  display_info_list.push_back(external_display_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetFirstDisplayAsInternalDisplay();
+  int64_t internal_display_id = GetPrimaryDisplay().id();
+  int64_t external_display_id = GetSecondaryDisplay().id();
+  EXPECT_EQ(1, GetPrimaryDisplay().id());
+  EXPECT_EQ(2U, display_manager()->num_connected_displays());
+  EXPECT_EQ(2U, display_manager()->GetNumDisplays());
+
+  // Set up two shelves.
+  PrefService* prefs =
+      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
+  Shelf* primary_shelf = GetPrimaryShelf();
+  Shelf* secondary_shelf = Shell::GetAllRootWindowControllers().back()->shelf();
+  SetShelfAlignmentPref(prefs, internal_display_id, ShelfAlignment::kLeft);
+  SetShelfAutoHideBehaviorPref(prefs, internal_display_id,
+                               ShelfAutoHideBehavior::kAlways);
+  SetShelfAlignmentPref(prefs, external_display_id, ShelfAlignment::kBottom);
+  SetShelfAutoHideBehaviorPref(prefs, external_display_id,
+                               ShelfAutoHideBehavior::kNever);
+  ASSERT_EQ(ShelfAlignment::kLeft, primary_shelf->alignment());
+  ASSERT_EQ(ShelfAutoHideBehavior::kAlways,
+            primary_shelf->auto_hide_behavior());
+  ASSERT_EQ(ShelfAlignment::kBottom, secondary_shelf->alignment());
+  ASSERT_EQ(ShelfAutoHideBehavior::kNever,
+            secondary_shelf->auto_hide_behavior());
+
+  // Maximized test window on external display.
+  std::unique_ptr<aura::Window> window = CreateTestWindow();
+  window_util::MoveWindowToDisplay(window.get(), external_display_id);
+  WindowState* window_state = WindowState::Get(window.get());
+  window_state->Maximize();
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(gfx::Rect(800, 0, 900, 652), window->GetBoundsInScreen());
+
+  // Lock the session.
+  TestSessionControllerClient* client = GetSessionControllerClient();
   client->SetSessionState(session_manager::SessionState::LOCKED);
-  EXPECT_EQ(bounds, window->bounds());
+
+  // Emulate the docked mode, which turns off the internal display only.
+  display_info_list.clear();
+  display_info_list.push_back(external_display_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+  EXPECT_EQ(2, GetPrimaryDisplay().id());
+  EXPECT_EQ(1U, display_manager()->num_connected_displays());
+  EXPECT_EQ(1U, display_manager()->GetNumDisplays());
+
+  // Disconnect external display.
+  display_info_list.clear();
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+  EXPECT_EQ(2, GetPrimaryDisplay().id());
+  EXPECT_EQ(1U, display_manager()->num_connected_displays());
+  EXPECT_EQ(1U, display_manager()->GetNumDisplays());
+
+  // Emulate resuming from sleep state that was in docked mode.
+  display_info_list.push_back(internal_display_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+  EXPECT_EQ(1, GetPrimaryDisplay().id());
+  EXPECT_EQ(1U, display_manager()->num_connected_displays());
+  EXPECT_EQ(1U, display_manager()->GetNumDisplays());
+
+  // Unlock the session.
   client->SetSessionState(session_manager::SessionState::ACTIVE);
-  EXPECT_EQ(bounds, window->bounds());
+  ASSERT_EQ(ShelfAlignment::kLeft, primary_shelf->alignment());
+  ASSERT_EQ(ShelfAutoHideBehavior::kAlways,
+            primary_shelf->auto_hide_behavior());
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(gfx::Rect(800, 600), window->GetBoundsInScreen());
+}
+
+// Make sure maximized window bounds is correct with external display
+// disconnected and reconnected in lock session.
+// Please see b/252557955.
+TEST_F(WorkspaceLayoutManagerTest,
+       WindowBoundsWithExternalDisplayDisconnectedAndReconnected) {
+  // Set up two displays.
+  const display::ManagedDisplayInfo internal_display_info =
+      CreateDisplayInfo(1, gfx::Rect(800, 600));
+  const display::ManagedDisplayInfo external_display_info =
+      CreateDisplayInfo(2, gfx::Rect(1, 1, 900, 700));
+  std::vector<display::ManagedDisplayInfo> display_info_list;
+  display_info_list.push_back(internal_display_info);
+  display_info_list.push_back(external_display_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetFirstDisplayAsInternalDisplay();
+  int64_t internal_display_id = GetPrimaryDisplay().id();
+  int64_t external_display_id = GetSecondaryDisplay().id();
+  EXPECT_EQ(1, GetPrimaryDisplay().id());
+  EXPECT_EQ(2U, display_manager()->num_connected_displays());
+  EXPECT_EQ(2U, display_manager()->GetNumDisplays());
+
+  // Set up two shelves.
+  PrefService* prefs =
+      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
+  Shelf* primary_shelf = GetPrimaryShelf();
+  Shelf* secondary_shelf = Shell::GetAllRootWindowControllers().back()->shelf();
+  SetShelfAlignmentPref(prefs, internal_display_id, ShelfAlignment::kLeft);
+  SetShelfAutoHideBehaviorPref(prefs, internal_display_id,
+                               ShelfAutoHideBehavior::kAlways);
+  SetShelfAlignmentPref(prefs, external_display_id, ShelfAlignment::kBottom);
+  SetShelfAutoHideBehaviorPref(prefs, external_display_id,
+                               ShelfAutoHideBehavior::kAlways);
+  ASSERT_EQ(ShelfAlignment::kLeft, primary_shelf->alignment());
+  ASSERT_EQ(ShelfAutoHideBehavior::kAlways,
+            primary_shelf->auto_hide_behavior());
+  ASSERT_EQ(ShelfAlignment::kBottom, secondary_shelf->alignment());
+  ASSERT_EQ(ShelfAutoHideBehavior::kAlways,
+            secondary_shelf->auto_hide_behavior());
+
+  // Maximized test window on external display.
+  std::unique_ptr<aura::Window> window = CreateTestWindow();
+  window_util::MoveWindowToDisplay(window.get(), external_display_id);
+  WindowState* window_state = WindowState::Get(window.get());
+  window_state->Maximize();
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(gfx::Rect(800, 0, 900, 700), window->GetBoundsInScreen());
+
+  // Lock the session.
+  TestSessionControllerClient* client = GetSessionControllerClient();
+  client->SetSessionState(session_manager::SessionState::LOCKED);
+
+  // Disconnect external display.
+  display_info_list.clear();
+  display_info_list.push_back(internal_display_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+  EXPECT_EQ(1, GetPrimaryDisplay().id());
+  EXPECT_EQ(1U, display_manager()->num_connected_displays());
+  EXPECT_EQ(1U, display_manager()->GetNumDisplays());
+
+  // Reconnect external display.
+  display_info_list.push_back(external_display_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+  EXPECT_EQ(1, GetPrimaryDisplay().id());
+  EXPECT_EQ(2U, display_manager()->num_connected_displays());
+  EXPECT_EQ(2U, display_manager()->GetNumDisplays());
+
+  // Unlock the session.
+  client->SetSessionState(session_manager::SessionState::ACTIVE);
+  ASSERT_EQ(ShelfAlignment::kLeft, primary_shelf->alignment());
+  ASSERT_EQ(ShelfAutoHideBehavior::kAlways,
+            primary_shelf->auto_hide_behavior());
+  secondary_shelf = Shell::GetAllRootWindowControllers().back()->shelf();
+  ASSERT_EQ(ShelfAlignment::kBottom, secondary_shelf->alignment());
+  ASSERT_EQ(ShelfAutoHideBehavior::kAlways,
+            secondary_shelf->auto_hide_behavior());
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(gfx::Rect(800, 0, 900, 700), window->GetBoundsInScreen());
 }
 
 // Following "Solo" tests were originally written for BaseLayoutManager.
@@ -748,6 +1055,57 @@ TEST_F(WorkspaceLayoutManagerSoloTest, UnminimizeWithActivation) {
   EXPECT_TRUE(WindowState::Get(window.get())->IsActive());
 }
 
+class TestClientControlledStateDelegate
+    : public ClientControlledState::Delegate {
+ public:
+  TestClientControlledStateDelegate() = default;
+  TestClientControlledStateDelegate(const TestClientControlledStateDelegate&) =
+      delete;
+  TestClientControlledStateDelegate& operator=(
+      const TestClientControlledStateDelegate&) = delete;
+  ~TestClientControlledStateDelegate() override = default;
+
+  void HandleWindowStateRequest(WindowState* window_state,
+                                WindowStateType next_state) override {
+    window_state_request_count_++;
+  }
+
+  void HandleBoundsRequest(WindowState* window_state,
+                           WindowStateType requested_state,
+                           const gfx::Rect& bounds,
+                           int64_t display_id) override {}
+
+  int window_state_request_count() { return window_state_request_count_; }
+
+ private:
+  int window_state_request_count_{0};
+};
+
+// Tests that activation of a minimized client-controlled window requests
+// minimization of the window.
+TEST_F(WorkspaceLayoutManagerSoloTest,
+       UnminimizeClientControlledWithActivation) {
+  std::unique_ptr<aura::Window> window = CreateTestWindow();
+  WindowState::Get(window.get())->Minimize();
+  EXPECT_TRUE(WindowState::Get(window.get())->IsMinimized());
+  EXPECT_FALSE(WindowState::Get(window.get())->IsActive());
+
+  // Make the window client-controlled.
+  auto d = std::make_unique<TestClientControlledStateDelegate>();
+  auto* delegate = d.get();
+  auto state = std::make_unique<ClientControlledState>(std::move(d));
+  WindowState* window_state = WindowState::Get(window.get());
+  // Make sure that the window is minimized.
+  state->EnterNextState(window_state, WindowStateType::kMinimized);
+  window_state->SetStateObject(std::move(state));
+
+  window_state->Activate();
+  // As it's client controlled, the window isn't restored yet.
+  EXPECT_TRUE(WindowState::Get(window.get())->IsMinimized());
+  EXPECT_TRUE(WindowState::Get(window.get())->IsActive());
+  EXPECT_EQ(1, delegate->window_state_request_count());
+}
+
 // A aura::WindowObserver which sets the focus when the window becomes visible.
 class FocusDuringUnminimizeWindowObserver : public aura::WindowObserver {
  public:
@@ -785,7 +1143,7 @@ class FocusDuringUnminimizeWindowObserver : public aura::WindowObserver {
   }
 
  private:
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
   ui::WindowShowState show_state_;
 };
 
@@ -1131,12 +1489,12 @@ TEST_F(WorkspaceLayoutManagerSoloTest, NotResizeWhenScreenIsLocked) {
   // The window size should not get touched while we are in lock screen.
   GetSessionControllerClient()->LockScreen();
   ShelfLayoutManager* shelf_layout_manager = shelf->shelf_layout_manager();
-  shelf_layout_manager->UpdateVisibilityState();
+  shelf_layout_manager->UpdateVisibilityState(/*force_layout=*/false);
   EXPECT_EQ(window_bounds.ToString(), window->bounds().ToString());
 
   // Coming out of the lock screen the window size should still remain.
   GetSessionControllerClient()->UnlockScreen();
-  shelf_layout_manager->UpdateVisibilityState();
+  shelf_layout_manager->UpdateVisibilityState(/*force_layout=*/false);
   EXPECT_EQ(
       screen_util::GetMaximizedWindowBoundsInParent(window.get()).ToString(),
       window_bounds.ToString());
@@ -1220,7 +1578,7 @@ class WorkspaceLayoutManagerBackdropTest : public AshTestBase {
 
  private:
   // The default container.
-  aura::Window* default_container_;
+  raw_ptr<aura::Window, ExperimentalAsh> default_container_;
 };
 
 constexpr absl::optional<Sound> kNoSoundKey = absl::nullopt;
@@ -1323,17 +1681,17 @@ TEST_F(WorkspaceLayoutManagerBackdropTest,
   EXPECT_EQ(fullscreen_size,
             default_container()->children()[0]->bounds().size());
   shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kAlwaysHidden);
-  shelf_layout_manager->UpdateVisibilityState();
+  shelf_layout_manager->UpdateVisibilityState(/*force_layout=*/false);
 
   // When the shelf is re-shown WorkspaceLayoutManager shrinks all children but
   // the backdrop.
   shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kNever);
-  shelf_layout_manager->UpdateVisibilityState();
+  shelf_layout_manager->UpdateVisibilityState(/*force_layout=*/false);
   EXPECT_EQ(fullscreen_size,
             default_container()->children()[0]->bounds().size());
 
   shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kAlwaysHidden);
-  shelf_layout_manager->UpdateVisibilityState();
+  shelf_layout_manager->UpdateVisibilityState(/*force_layout=*/false);
   EXPECT_EQ(fullscreen_size,
             default_container()->children()[0]->bounds().size());
 }
@@ -1604,50 +1962,6 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, SpokenFeedbackFullscreenBackground) {
   EXPECT_EQ(kNoSoundKey, client.GetPlayedEarconAndReset());
 }
 
-TEST_F(WorkspaceLayoutManagerBackdropTest, SpokenFeedbackForArc) {
-  WorkspaceController* wc = ShellTestApi().workspace_controller();
-  WorkspaceControllerTestApi test_helper(wc);
-  AccessibilityControllerImpl* controller =
-      Shell::Get()->accessibility_controller();
-  TestAccessibilityControllerClient client;
-
-  controller->SetSpokenFeedbackEnabled(true, A11Y_NOTIFICATION_NONE);
-  EXPECT_TRUE(controller->spoken_feedback().enabled());
-
-  aura::test::TestWindowDelegate delegate;
-  std::unique_ptr<aura::Window> window_arc(CreateTestWindowInShellWithDelegate(
-      &delegate, 0, gfx::Rect(0, 0, 100, 100)));
-  window_arc->Show();
-  std::unique_ptr<aura::Window> window_nonarc(
-      CreateTestWindowInShellWithDelegate(&delegate, 0,
-                                          gfx::Rect(0, 0, 100, 100)));
-  window_nonarc->Show();
-
-  window_arc->SetProperty(aura::client::kAppType,
-                          static_cast<int>(AppType::ARC_APP));
-  EXPECT_FALSE(test_helper.GetBackdropWindow());
-
-  // ARC window will have a backdrop only when it's active.
-  wm::ActivateWindow(window_arc.get());
-  EXPECT_TRUE(test_helper.GetBackdropWindow());
-
-  wm::ActivateWindow(window_nonarc.get());
-  EXPECT_FALSE(test_helper.GetBackdropWindow());
-
-  wm::ActivateWindow(window_arc.get());
-  EXPECT_TRUE(test_helper.GetBackdropWindow());
-
-  // Make sure that clicking the backdrop window will play sound.
-  ui::test::EventGenerator* generator = GetEventGenerator();
-  generator->MoveMouseTo(300, 300);
-  generator->ClickLeftButton();
-  EXPECT_EQ(Sound::kVolumeAdjust, client.GetPlayedEarconAndReset());
-
-  generator->MoveMouseTo(70, 70);
-  generator->ClickLeftButton();
-  EXPECT_EQ(kNoSoundKey, client.GetPlayedEarconAndReset());
-}
-
 class WorkspaceLayoutManagerKeyboardTest : public AshTestBase {
  public:
   WorkspaceLayoutManagerKeyboardTest() : layout_manager_(nullptr) {}
@@ -1670,15 +1984,32 @@ class WorkspaceLayoutManagerKeyboardTest : public AshTestBase {
 
   void ShowKeyboard() {
     layout_manager_->OnKeyboardDisplacingBoundsChanged(keyboard_bounds_);
-    restore_work_area_insets_ = GetPrimaryDisplay().GetWorkAreaInsets();
-    Shell::Get()->SetDisplayWorkAreaInsets(
-        Shell::GetPrimaryRootWindow(),
-        gfx::Insets(0, 0, keyboard_bounds_.height(), 0));
+
+    aura::Window* root = Shell::GetPrimaryRootWindow();
+    WorkAreaInsets* work_area_insets = WorkAreaInsets::ForWindow(root);
+
+    restore_work_area_insets_ =
+        work_area_insets->in_session_user_work_area_insets();
+
+    gfx::Insets insets = gfx::Insets::TLBR(0, 0, keyboard_bounds_.height(), 0);
+    work_area_insets->UpdateWorkAreaInsetsForTest(root, gfx::Rect(),
+                                                  gfx::Insets(), insets);
+
+    ash::KeyboardStateDescriptor state{true, keyboard_bounds_, keyboard_bounds_,
+                                       keyboard_bounds_};
+    work_area_insets->OnKeyboardAppearanceChanged(state);
   }
 
   void HideKeyboard() {
-    Shell::Get()->SetDisplayWorkAreaInsets(Shell::GetPrimaryRootWindow(),
-                                           restore_work_area_insets_);
+    aura::Window* root = Shell::GetPrimaryRootWindow();
+    WorkAreaInsets* work_area_insets = WorkAreaInsets::ForWindow(root);
+    work_area_insets->UpdateWorkAreaInsetsForTest(
+        root, gfx::Rect(), gfx::Insets(), restore_work_area_insets_);
+
+    ash::KeyboardStateDescriptor state{true, gfx::Rect(), gfx::Rect(),
+                                       gfx::Rect()};
+    work_area_insets->OnKeyboardAppearanceChanged(state);
+
     layout_manager_->OnKeyboardDisplacingBoundsChanged(gfx::Rect());
   }
 
@@ -1695,7 +2026,7 @@ class WorkspaceLayoutManagerKeyboardTest : public AshTestBase {
  private:
   gfx::Insets restore_work_area_insets_;
   gfx::Rect keyboard_bounds_;
-  WorkspaceLayoutManager* layout_manager_;
+  raw_ptr<WorkspaceLayoutManager, ExperimentalAsh> layout_manager_;
 };
 
 // Tests that when a child window gains focus the top level window containing it
@@ -1833,7 +2164,7 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest,
 }
 
 // Test that backdrop works in split view mode.
-TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
+TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitViewTest) {
   SetTabletModeEnabled(true);
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
 
@@ -1860,16 +2191,19 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
   // Test that backdrop window is visible and is the second child in the
   // container. Its bounds should be the same as the container bounds.
   EXPECT_EQ(2U, default_container()->children().size());
-  for (auto* child : default_container()->children())
+  for (auto* child : default_container()->children()) {
     EXPECT_TRUE(child->IsVisible());
+  }
+
   EXPECT_EQ(window1.get(), default_container()->children()[1]);
   EXPECT_EQ(default_container()->bounds(),
             default_container()->children()[0]->bounds());
 
   // Snap the window to left. Test that the backdrop window is still visible
-  // and is the second child in the container. Its bounds should be the same
-  // as the snapped window's bounds.
-  split_view_controller()->SnapWindow(window1.get(), SplitViewController::LEFT);
+  // and is the third child (split view divider as one of the children) in the
+  // container. Its bounds should be the same as the snapped window's bounds.
+  split_view_controller()->SnapWindow(
+      window1.get(), SplitViewController::SnapPosition::kPrimary);
   EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
   // One of the windows in the default container is the overview
   // no_windows_widget window. Exclude it.
@@ -1884,7 +2218,7 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
                                                        ->GetNativeWindow();
                                 }),
                  children.end());
-  EXPECT_EQ(2U, children.size());
+  EXPECT_EQ(3U, children.size());
 
   // Backdrop is hidden in overview mode. So test the window and backdrop
   // separately.
@@ -1894,15 +2228,17 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
   EXPECT_EQ(window1->bounds(), children[0]->bounds());
 
   // Now snap another window to right. Test that the backdrop window is still
-  // visible but is now the third window in the container. Its bounds should
+  // visible but is now the fourth window in the container. Its bounds should
   // still be the same as the container bounds.
   std::unique_ptr<aura::Window> window2(CreateWindow(bounds));
-  split_view_controller()->SnapWindow(window2.get(),
-                                      SplitViewController::RIGHT);
+  split_view_controller()->SnapWindow(
+      window2.get(), SplitViewController::SnapPosition::kSecondary);
 
-  EXPECT_EQ(3U, default_container()->children().size());
-  for (auto* child : default_container()->children())
+  EXPECT_EQ(4U, default_container()->children().size());
+  for (auto* child : default_container()->children()) {
     EXPECT_TRUE(child->IsVisible());
+  }
+
   EXPECT_EQ(window1.get(), default_container()->children()[1]);
   EXPECT_EQ(window2.get(), default_container()->children()[2]);
   EXPECT_EQ(default_container()->bounds(),
@@ -1986,8 +2322,8 @@ class WorkspaceLayoutManagerSystemUiAreaTest : public AshTestBase {
   TestState* test_state() { return test_state_; }
 
  private:
-  aura::Window* window_ = nullptr;
-  TestState* test_state_ = nullptr;
+  raw_ptr<aura::Window, ExperimentalAsh> window_ = nullptr;
+  raw_ptr<TestState, ExperimentalAsh> test_state_ = nullptr;
 };
 
 // Expect that showing and hiding the unified system tray triggers a system ui
@@ -2003,6 +2339,21 @@ TEST_F(WorkspaceLayoutManagerSystemUiAreaTest,
   test_state()->reset_num_system_ui_area_changes();
 
   unified_system_tray->CloseBubble();
+  EXPECT_GE(test_state()->num_system_ui_area_changes(), 1);
+}
+
+// Expect that showing the clamshell bubble launcher triggers as system UI area
+// change event.
+TEST_F(WorkspaceLayoutManagerSystemUiAreaTest,
+       SystemUiAreaChangeOnClamshellLauncherVisibilityChange) {
+  ASSERT_FALSE(Shell::Get()->IsInTabletMode());
+
+  AppListController* app_list_controller = AppListController::Get();
+  app_list_controller->ShowAppList(AppListShowSource::kSearchKey);
+  EXPECT_GE(test_state()->num_system_ui_area_changes(), 1);
+  test_state()->reset_num_system_ui_area_changes();
+
+  app_list_controller->DismissAppList();
   EXPECT_GE(test_state()->num_system_ui_area_changes(), 1);
 }
 

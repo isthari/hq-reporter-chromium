@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,13 @@
 #include "ash/ash_export.h"
 #include "ash/constants/app_types.h"
 #include "base/containers/flat_set.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/time/time.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/user_activity/user_activity_detector.h"
 #include "ui/base/user_activity/user_activity_observer.h"
+#include "ui/events/event_handler.h"
 #include "ui/wm/public/activation_change_observer.h"
 #include "ui/wm/public/activation_client.h"
 
@@ -29,7 +32,8 @@ namespace ash {
 // window type. Only used when the device is in Demo Mode.
 class ASH_EXPORT DemoSessionMetricsRecorder
     : public ui::UserActivityObserver,
-      public wm::ActivationChangeObserver {
+      public wm::ActivationChangeObserver,
+      public ui::EventHandler {
  public:
   // These apps are preinstalled in Demo Mode. This list is not exhaustive, and
   // includes first- and third-party Chrome and ARC apps.
@@ -77,10 +81,15 @@ class ASH_EXPORT DemoSessionMetricsRecorder
     kClipchamp = 37,
     kGeForceNow = 38,
     kZoom = 39,
+    kSumo = 40,
+    kAdobeSpark = 41,
     // Add future entries above this comment, in sync with enums.xml.
     // Update kMaxValue to the last value.
-    kMaxValue = kZoom,
+    kMaxValue = kAdobeSpark,
   };
+
+  static constexpr char kUserClicksAndPressesMetric[] =
+      "DemoMode.UserClicksAndPresses";
 
   // The recorder will create a normal timer by default. Tests should provide a
   // mock timer to control sampling periods.
@@ -100,6 +109,10 @@ class ASH_EXPORT DemoSessionMetricsRecorder
   void OnWindowActivated(wm::ActivationChangeObserver::ActivationReason reason,
                          aura::Window* gained_active,
                          aura::Window* lost_active) override;
+
+  // ui::EventHandler:
+  void OnMouseEvent(ui::MouseEvent* event) override;
+  void OnTouchEvent(ui::TouchEvent* event) override;
 
  private:
   // Starts the timer for periodic sampling.
@@ -130,6 +143,10 @@ class ASH_EXPORT DemoSessionMetricsRecorder
   // demo session, measured from first user activity to last user activity.
   void ReportDwellTime();
 
+  // Records the number of times the user clicks mouse/trackpad and presses
+  // screen in the demo session.
+  void ReportUserClickesAndPresses();
+
   // Stores samples as they are collected. Report to UMA if we see user
   // activity soon after. Guaranteed not to grow too large.
   std::vector<DemoModeApp> unreported_samples_;
@@ -141,10 +158,14 @@ class ASH_EXPORT DemoSessionMetricsRecorder
   base::flat_set<std::string> unique_apps_launched_;
 
   // Used for subscribing to window activation events.
-  wm::ActivationClient* activation_client_ = nullptr;
+  raw_ptr<wm::ActivationClient, ExperimentalAsh> activation_client_ = nullptr;
 
   // How many periods have elapsed since the last user activity.
   int periods_since_activity_ = 0;
+
+  // Indicates number of user clicks mouse/trackpad and presses screen with
+  // demo mode in the current session.
+  int user_clicks_and_presses_ = 0;
 
   base::TimeTicks first_user_activity_;
 

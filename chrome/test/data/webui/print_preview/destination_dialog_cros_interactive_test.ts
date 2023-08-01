@@ -1,15 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {CloudPrintInterfaceImpl, NativeLayerImpl, PrintPreviewDestinationDialogCrosElement, State} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {NativeLayerImpl, PrintPreviewDestinationDialogCrosElement, State} from 'chrome://print/print_preview.js';
 import {keyDownOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
-
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {eventToPromise, fakeDataBind} from 'chrome://webui-test/test_util.js';
+import {fakeDataBind} from 'chrome://webui-test/polymer_test_util.js';
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
-import {CloudPrintInterfaceStub} from './cloud_print_interface_stub.js';
 import {setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
 import {NativeLayerStub} from './native_layer_stub.js';
 import {setupTestListenerElement} from './print_preview_test_utils.js';
@@ -24,7 +22,7 @@ const destination_dialog_cros_interactive_test = {
 
 Object.assign(window, {
   destination_dialog_cros_interactive_test:
-      destination_dialog_cros_interactive_test
+      destination_dialog_cros_interactive_test,
 });
 
 suite(destination_dialog_cros_interactive_test.suiteName, function() {
@@ -37,15 +35,12 @@ suite(destination_dialog_cros_interactive_test.suiteName, function() {
   });
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     // Create destinations.
     nativeLayer = new NativeLayerStub();
     NativeLayerImpl.setInstance(nativeLayer);
     setNativeLayerCrosInstance();
-    const cloudPrintInterface = new CloudPrintInterfaceStub();
-    CloudPrintInterfaceImpl.setInstance(cloudPrintInterface);
-    cloudPrintInterface.configure();
 
     const model = document.createElement('print-preview-model');
     document.body.appendChild(model);
@@ -73,7 +68,7 @@ suite(destination_dialog_cros_interactive_test.suiteName, function() {
   // Tests that the search input text field is automatically focused when the
   // dialog is shown.
   test(
-      assert(destination_dialog_cros_interactive_test.TestNames.FocusSearchBox),
+      destination_dialog_cros_interactive_test.TestNames.FocusSearchBox,
       function() {
         const searchInput = dialog.$.searchBox.getSearchInput();
         assertTrue(!!searchInput);
@@ -86,8 +81,7 @@ suite(destination_dialog_cros_interactive_test.suiteName, function() {
   // Tests that pressing the escape key while the search box is focused
   // closes the dialog if and only if the query is empty.
   test(
-      assert(
-          destination_dialog_cros_interactive_test.TestNames.EscapeSearchBox),
+      destination_dialog_cros_interactive_test.TestNames.EscapeSearchBox,
       function() {
         const searchBox = dialog.$.searchBox;
         const searchInput = searchBox.getSearchInput();

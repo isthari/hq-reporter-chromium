@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,9 +44,19 @@ class BubbleContentsWrapper : public content::WebContentsDelegate,
     virtual bool HandleKeyboardEvent(
         content::WebContents* source,
         const content::NativeWebKeyboardEvent& event);
+    virtual bool HandleContextMenu(content::RenderFrameHost& render_frame_host,
+                                   const content::ContextMenuParams& params);
+    virtual void RequestMediaAccessPermission(
+        content::WebContents* web_contents,
+        const content::MediaStreamRequest& request,
+        content::MediaResponseCallback callback) {}
+    virtual content::WebContents* OpenURLFromTab(
+        content::WebContents* source,
+        const content::OpenURLParams& params);
   };
 
-  BubbleContentsWrapper(content::BrowserContext* browser_context,
+  BubbleContentsWrapper(const GURL& webui_url,
+                        content::BrowserContext* browser_context,
                         int task_manager_string_id,
                         bool webui_resizes_host,
                         bool esc_closes_ui);
@@ -63,10 +73,19 @@ class BubbleContentsWrapper : public content::WebContentsDelegate,
       const content::NativeWebKeyboardEvent& event) override;
   bool HandleContextMenu(content::RenderFrameHost& render_frame_host,
                          const content::ContextMenuParams& params) override;
+  std::unique_ptr<content::EyeDropper> OpenEyeDropper(
+      content::RenderFrameHost* frame,
+      content::EyeDropperListener* listener) override;
+  void RequestMediaAccessPermission(
+      content::WebContents* web_contents,
+      const content::MediaStreamRequest& request,
+      content::MediaResponseCallback callback) override;
+  content::WebContents* OpenURLFromTab(
+      content::WebContents* source,
+      const content::OpenURLParams& params) override;
 
   // content::WebContentsObserver:
-  void RenderViewHostChanged(content::RenderViewHost* old_host,
-                             content::RenderViewHost* new_host) override;
+  void PrimaryPageChanged(content::Page& page) override;
   void PrimaryMainFrameRenderProcessGone(
       base::TerminationStatus status) override;
 
@@ -110,7 +129,8 @@ class BubbleContentsWrapperT : public BubbleContentsWrapper {
                          int task_manager_string_id,
                          bool webui_resizes_host = true,
                          bool esc_closes_ui = true)
-      : BubbleContentsWrapper(browser_context,
+      : BubbleContentsWrapper(webui_url,
+                              browser_context,
                               task_manager_string_id,
                               webui_resizes_host,
                               esc_closes_ui),

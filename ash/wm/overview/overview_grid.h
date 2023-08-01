@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,14 @@
 
 #include "ash/public/cpp/wallpaper/wallpaper_controller_observer.h"
 #include "ash/rotator/screen_rotation_animator_observer.h"
+#include "ash/style/rounded_label_widget.h"
+#include "ash/wm/desks/templates/saved_desk_save_desk_button_container.h"
 #include "ash/wm/overview/overview_session.h"
-#include "ash/wm/overview/rounded_label_widget.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/splitview/split_view_drag_indicators.h"
 #include "ash/wm/splitview/split_view_observer.h"
-#include "ash/wm/window_state.h"
 #include "base/containers/flat_set.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/aura/window.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -27,33 +28,27 @@ namespace views {
 class Widget;
 }
 
+namespace ui {
+class PresentationTimeRecorder;
+}
+
 namespace ash {
 
-class DesksBarView;
-class DesksTemplatesGridView;
+class LegacyDeskBarView;
 class OverviewGridEventHandler;
 class OverviewItem;
-class PresentationTimeRecorder;
-class SaveDeskTemplateButton;
+class SavedDeskSaveDeskButton;
+class SavedDeskSaveDeskButtonContainer;
+class SavedDeskLibraryView;
 
-// Represents a grid of windows in the Overview Mode in a particular root
-// window, and manages a selection widget that can be moved with the arrow keys.
-// The idea behind the movement strategy is that it should be possible to access
-// any window pressing a given arrow key repeatedly.
-// +-------+  +-------+  +-------+
-// |   0   |  |   1   |  |   2   |
-// +-------+  +-------+  +-------+
-// +-------+  +-------+  +-------+
-// |   3   |  |   4   |  |   5   |
-// +-------+  +-------+  +-------+
-// +-------+
-// |   6   |
-// +-------+
-// Example sequences:
-//  - Going right to left
-//    0, 1, 2, 3, 4, 5, 6
-// The selector is switched to the next window grid (if available) or wrapped if
-// it reaches the end of its movement sequence.
+// Manages and positions the overview UI on a per root window basis. Overview UI
+// elements include:
+//   - Desks bar view which contains a desk preview and desk name per desk.
+//   - Splitview indicators for snapping windows in overview.
+//   - Overview items representing each application window associated with the
+//     root window of the grid.
+//   - Saved desk UI elements to create saved desks and display saved desks.
+//   - etc.
 class ASH_EXPORT OverviewGrid : public SplitViewObserver,
                                 public ScreenRotationAnimatorObserver,
                                 public WallpaperControllerObserver {
@@ -129,7 +124,8 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   void AddItemInMruOrder(aura::Window* window,
                          bool reposition,
                          bool animate,
-                         bool restack);
+                         bool restack,
+                         bool use_spawn_animation);
 
   // Removes |overview_item| from the grid. |overview_item| cannot already be
   // absent from the grid. If |item_destroying| is true, we may want to notify
@@ -141,10 +137,10 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
                   bool reposition);
 
   // Removes all overview items and restores the respective windows. This is
-  // used when launching a desks template. While this will empty the grid, it
-  // will *not* invoke `OverviewSession::OnGridEmpty()` since the grid is about
-  // to get filled with new windows.
-  void RemoveAllItemsForDesksTemplatesLaunch();
+  // used when launching a saved desk. While this will empty the grid, it will
+  // *not* invoke `OverviewSession::OnGridEmpty()` since the grid is about to
+  // get filled with new windows.
+  void RemoveAllItemsForSavedDeskLaunch();
 
   // Adds a drop target for |dragged_item|, at the index immediately following
   // |dragged_item|. Repositions all items except |dragged_item|, so that the
@@ -209,6 +205,10 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
                          const gfx::PointF& location_in_screen,
                          bool should_drop_window_into_overview,
                          bool snap);
+
+  // Called when a WebUI Tab Strip thumbnail is dropped into overview grid.
+  void MergeWindowIntoOverviewForWebUITabStrip(aura::Window* dragged_window);
+
   // Shows/Hides windows during window dragging. Used when swiping up a window
   // from shelf.
   void SetVisibleDuringWindowDragging(bool visible, bool animate);
@@ -286,12 +286,13 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // (screen_location, and whether that location intersects with the
   // desks bar widget). |for_drop| should be set to true if this is called when
   // the item is being dropped when the drag is complete.
-  // Returns true if |screen_location| does intersect with the DesksBarView.
+  // Returns true if |screen_location| does intersect with the
+  // LegacyDeskBarView.
   bool IntersectsWithDesksBar(const gfx::Point& screen_location,
                               bool update_desks_bar_drag_details,
                               bool for_drop);
 
-  // Updates the drag details for DesksBarView to end the drag and move the
+  // Updates the drag details for LegacyDeskBarView to end the drag and move the
   // window of |drag_item| to another desk if it was dropped on a mini_view of
   // a desk that is different than that of the active desk or if dropped on the
   // new desk button. Returns true if the window was successfully moved to
@@ -334,20 +335,21 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // Commits any on-going name changes if any.
   void CommitNameChanges();
 
-  // Shows the grid of the desks templates. Creates the widget if needed. If
-  // `was_zero_state` is true then we will expand the desks bar.
-  void ShowDesksTemplatesGrid(bool was_zero_state);
+  // Shows the saved desk library. Creates the widget if needed. The desks bar
+  // will be expanded if it isn't already.
+  void ShowSavedDeskLibrary();
 
-  // Hides the grid of desks templates and reshow the overview items. Updates
-  // the templates button if we are not exiting overview.
-  void HideDesksTemplatesGrid(bool exit_overview);
+  // Hides the saved desk library and reshows the overview items. Updates the
+  // save desk buttons if we are not exiting overview.
+  void HideSavedDeskLibrary(bool exit_overview);
 
-  // True if the grid of desks templates is shown.
-  bool IsShowingDesksTemplatesGrid() const;
+  // True if the saved desk library is shown, or in the process of animating to
+  // be shown.
+  bool IsShowingSavedDeskLibrary() const;
 
-  // Returns true if any template name is being modified in its item view on
+  // Returns true if any saved desk name is being modified in its item view on
   // this grid.
-  bool IsTemplateNameBeingModified() const;
+  bool IsSavedDeskNameBeingModified() const;
 
   // Updates the visibility of the `no_windows_widget_`. If `no_items` is true,
   // the widget will be shown. If `no_items` is false or the desk templates grid
@@ -358,14 +360,25 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // true.
   void RefreshNoWindowsWidgetBounds(bool animate);
 
-  // Updates the button that saves the active desk as a template. Creates the
-  // button if it hasn't been created already, else it just sets its bounds.
-  void UpdateSaveDeskAsTemplateButton();
+  // Updates bounds, tooltips and a11y focus, as well as handles animations on
+  // `save_desk_button_container_widget_`.
+  void UpdateSaveDeskButtons();
 
+  // Enable the save desk button container.
+  void EnableSaveDeskButtonContainer();
+
+  bool IsSaveDeskButtonContainerVisible() const;
   bool IsSaveDeskAsTemplateButtonVisible() const;
+  bool IsSaveDeskForLaterButtonVisible() const;
 
-  // Returns the button if available, otherwise null.
-  SaveDeskTemplateButton* GetSaveDeskAsTemplateButton() const;
+  // Returns the save desk as template button if available, otherwise null.
+  SavedDeskSaveDeskButton* GetSaveDeskAsTemplateButton() const;
+
+  // Returns the save desk for later button if available, otherwise null.
+  SavedDeskSaveDeskButton* GetSaveDeskForLaterButton() const;
+
+  // Returns the save button container if available, otherwise null.
+  SavedDeskSaveDeskButtonContainer* GetSaveDeskButtonContainer() const;
 
   // SplitViewObserver:
   void OnSplitViewStateChanged(SplitViewController::State previous_state,
@@ -380,6 +393,9 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // WallpaperControllerObserver:
   void OnWallpaperChanging() override;
   void OnWallpaperChanged() override;
+
+  // Returns the saved desk library view, or nullptr.
+  SavedDeskLibraryView* GetSavedDeskLibraryView() const;
 
   // Returns true if the grid has no more windows.
   bool empty() const { return window_list_.empty(); }
@@ -404,9 +420,8 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
 
   const views::Widget* desks_widget() const { return desks_widget_.get(); }
 
-  const DesksBarView* desks_bar_view() const { return desks_bar_view_; }
-
-  const gfx::Rect bounds() const { return bounds_; }
+  const LegacyDeskBarView* desks_bar_view() const { return desks_bar_view_; }
+  LegacyDeskBarView* desks_bar_view() { return desks_bar_view_; }
 
   bool should_animate_when_exiting() const {
     return should_animate_when_exiting_;
@@ -416,38 +431,49 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
 
   views::Widget* drop_target_widget() { return drop_target_widget_.get(); }
 
-  float scroll_offset() const { return scroll_offset_; }
-
   OverviewGridEventHandler* grid_event_handler() {
     return grid_event_handler_.get();
   }
 
-  views::Widget* desks_templates_grid_widget() const {
-    return desks_templates_grid_widget_.get();
+  views::Widget* saved_desk_library_widget() const {
+    return saved_desk_library_widget_.get();
   }
 
-  views::Widget* save_desk_as_template_widget() const {
-    return save_desk_as_template_widget_.get();
+  views::Widget* save_desk_button_container_widget() const {
+    return save_desk_button_container_widget_.get();
   }
+
+  int num_incognito_windows() const { return num_incognito_windows_; }
+
+  int num_unsupported_windows() const { return num_unsupported_windows_; }
+
+  const gfx::Rect bounds_for_testing() const { return bounds_; }
+  float scroll_offset_for_testing() const { return scroll_offset_; }
 
  private:
-  class TargetWindowObserver;
   friend class DesksTemplatesTest;
   friend class OverviewTestBase;
 
-  // Struct which holds data required to perform nudges.
+  // Struct which holds data required to perform nudges. Nudge in the context of
+  // overview view means an overview item is currently being dragged vertically
+  // and may be closed when released, and the remaining windows will move
+  // towards their positions once the item is closed.
+  // TODO(conniekxu|sammiequon): Rename this as nudge has a different name in
+  // cros system UI.
   struct NudgeData {
     size_t index;
     gfx::RectF src;
     gfx::RectF dst;
   };
 
-  // Initializes the widget that contains the DesksBarView contents.
+  // Initializes the widget that contains the `LegacyDeskBarView` contents. Also
+  // will update the save desk buttons visibility after we initialize
+  // `LegacyDeskBarView`.
   void MaybeInitDesksWidget();
 
   // Gets the layout of the overview items. Layout is done in 2 stages
   // maintaining fixed MRU ordering.
-  // 1. Optimal height is determined. In this stage |height| is bisected to find
+  // 1. Optimal height is determined. In this stage `height` is bisected to find
   //    maximum height which still allows all the windows to fit.
   // 2. Row widths are balanced. In this stage the available width is reduced
   //    until some windows are no longer fitting or until the difference between
@@ -499,27 +525,37 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // Returns the the bounds of the desks widget in screen coordinates.
   gfx::Rect GetDesksWidgetBounds() const;
 
-  void UpdateCannotSnapWarningVisibility();
+  void UpdateCannotSnapWarningVisibility(bool animate);
 
-  // Called back when the button to save a desk template is pressed.
+  // Called back when the button to save desk as template button is pressed.
   void OnSaveDeskAsTemplateButtonPressed();
 
-  // Called when the animation for fading the `desks_templates_grid_widget_` out
-  // is completed.
-  void OnDesksTemplatesGridFadedOut();
+  // Called back when the button to save a desk for later is pressed.
+  void OnSaveDeskForLaterButtonPressed();
 
-  // Called when the animation for fading the `save_desk_as_template_widget_`
-  // out is completed.
-  void OnSaveDeskAsTemplateButtonFadedOut();
+  // Called when the animation for fading the `saved_desk_grid_widget_` out is
+  // completed.
+  void OnSavedDeskGridFadedOut();
+
+  // Called when the animation for fading the
+  // `save_desk_button_container_widget_` out is completed.
+  void OnSaveDeskButtonContainerFadedOut();
+
+  // Updates the number of unsupported windows of saved desk. This includes
+  // `num_incognito_windows_` and `num_unsupported_windows` as of now. When
+  // `window` is being added to the grid, `increment` is true, and false
+  // otherwise.
+  void UpdateNumSavedDeskUnsupportedWindows(aura::Window* window,
+                                            bool increment);
 
   // Returns the height of `desks_bar_view_`.
   int GetDesksBarHeight() const;
 
   // Root window the grid is in.
-  aura::Window* root_window_;
+  raw_ptr<aura::Window, ExperimentalAsh> root_window_;
 
   // Pointer to the OverviewSession that spawned this grid.
-  OverviewSession* overview_session_;
+  raw_ptr<OverviewSession, ExperimentalAsh> overview_session_;
 
   // Vector containing all the windows in this grid.
   std::vector<std::unique_ptr<OverviewItem>> window_list_;
@@ -535,22 +571,14 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // feature is enabled.
   std::unique_ptr<views::Widget> desks_widget_;
   // The contents view of the above |desks_widget_| if created.
-  DesksBarView* desks_bar_view_ = nullptr;
+  raw_ptr<LegacyDeskBarView, ExperimentalAsh> desks_bar_view_ = nullptr;
 
   // The drop target widget. The drop target is created when a window or
   // overview item is being dragged, and is destroyed when the drag ends or
   // overview mode is ended. The drop target is hidden when a snap preview area
   // is shown. You can drop a window into overview by dragging to the drop
-  // target or by dragging to almost anywhere while the drop target is shown. A
-  // plus sign in the center of the drop target indicates tab dragging.
+  // target or by dragging to almost anywhere while the drop target is shown.
   std::unique_ptr<views::Widget> drop_target_widget_;
-
-  // The observer of the target window, which is the window that the dragged
-  // tabs are going to merge into after the drag ends. After the dragged tabs
-  // merge into the target window, and if the target window is a minimized
-  // window in overview and is not destroyed yet, we need to update the overview
-  // minimized widget's content view so that it reflects the merge.
-  std::unique_ptr<TargetWindowObserver> target_window_observer_;
 
   // True if the overview grid should animate when exiting overview mode. Note
   // even if it's true, it doesn't mean all window items in the grid should
@@ -585,21 +613,26 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   std::unique_ptr<OverviewGridEventHandler> grid_event_handler_;
 
   // Records the presentation time of scrolling the grid in overview mode.
-  std::unique_ptr<PresentationTimeRecorder> presentation_time_recorder_;
+  std::unique_ptr<ui::PresentationTimeRecorder> presentation_time_recorder_;
 
   // Weak pointer to the window that is being dragged from the top, if there is
   // one.
-  aura::Window* dragged_window_ = nullptr;
+  raw_ptr<aura::Window, ExperimentalAsh> dragged_window_ = nullptr;
 
-  // The widget that contains the view for all the existing templates.
-  std::unique_ptr<views::Widget> desks_templates_grid_widget_;
+  // The widget that contains the view for all saved desks.
+  std::unique_ptr<views::Widget> saved_desk_library_widget_;
 
-  // The contents view of the above `desks_templates_grid_widget_` if created.
-  DesksTemplatesGridView* desks_templates_grid_view_ = nullptr;
+  // A widget that contains save desk buttons which save desk as template or for
+  // later when pressed.
+  std::unique_ptr<views::Widget> save_desk_button_container_widget_;
 
-  // A widget that contains a button which creates a new desk template when
-  // pressed.
-  std::unique_ptr<views::Widget> save_desk_as_template_widget_;
+  // The number of incognito windows in this grid. Used by saved desks to
+  // identify the unsupported window type to the user.
+  int num_incognito_windows_ = 0;
+
+  // The number of unsupported windows in this grid. Used by saved desks to
+  // identify the unsupported window type to the user.
+  int num_unsupported_windows_ = 0;
 
   base::WeakPtrFactory<OverviewGrid> weak_ptr_factory_{this};
 };

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,7 @@ std::unique_ptr<ScopedFile> ScopedFile::Create(const base::FilePath& dir,
   CHECK(base::PathExists(file_path.DirName()));
   CHECK_LE(contents.length(),
            static_cast<size_t>(std::numeric_limits<int>::max()));
-  base::WriteFile(file_path, contents.c_str(),
-                  static_cast<int>(contents.length()));
+  base::WriteFile(file_path, contents);
   return std::make_unique<ScopedFile>(file_path);
 }
 

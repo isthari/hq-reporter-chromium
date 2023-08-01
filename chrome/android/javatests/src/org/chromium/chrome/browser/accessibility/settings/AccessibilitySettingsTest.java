@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,19 @@ package org.chromium.chrome.browser.accessibility.settings;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
-import static androidx.test.espresso.action.ViewActions.swipeUp;
+import static androidx.test.espresso.matcher.ViewMatchers.hasDescendant;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import android.app.Instrumentation;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.provider.Settings;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.preference.Preference;
-import androidx.test.espresso.matcher.ViewMatchers;
+import androidx.test.espresso.contrib.RecyclerViewActions;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -27,14 +28,20 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.accessibility.FontSizePrefs;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
 import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.components.browser_ui.settings.ChromeBaseCheckBoxPreference;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.chrome.test.R;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.components.browser_ui.accessibility.AccessibilitySettings;
+import org.chromium.components.browser_ui.accessibility.FontSizePrefs;
+import org.chromium.components.browser_ui.accessibility.TextScalePreference;
+import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
+import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.UiUtils;
 
@@ -42,9 +49,14 @@ import java.text.NumberFormat;
 
 /**
  * Tests for the Accessibility Settings menu.
+ *
+ * TODO(crbug.com/1296642): This tests the class in //components/browser_ui, but we don't have a
+ * good way of testing with native code there.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 public class AccessibilitySettingsTest {
+    private static final String PREF_IMAGE_DESCRIPTIONS = "image_descriptions";
+
     @Rule
     public SettingsActivityTestRule<AccessibilitySettings> mSettingsActivityTestRule =
             new SettingsActivityTestRule<>(AccessibilitySettings.class);
@@ -64,6 +76,7 @@ public class AccessibilitySettingsTest {
     @Test
     @SmallTest
     @Feature({"Accessibility"})
+    @DisableFeatures({ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM})
     public void testAccessibilitySettings() throws Exception {
         mSettingsActivityTestRule.startSettingsActivity();
         AccessibilitySettings accessibilitySettings = mSettingsActivityTestRule.getFragment();
@@ -71,8 +84,8 @@ public class AccessibilitySettingsTest {
         TextScalePreference textScalePref =
                 (TextScalePreference) accessibilitySettings.findPreference(
                         AccessibilitySettings.PREF_TEXT_SCALE);
-        ChromeBaseCheckBoxPreference forceEnableZoomPref =
-                (ChromeBaseCheckBoxPreference) accessibilitySettings.findPreference(
+        ChromeSwitchPreference forceEnableZoomPref =
+                (ChromeSwitchPreference) accessibilitySettings.findPreference(
                         AccessibilitySettings.PREF_FORCE_ENABLE_ZOOM);
         NumberFormat percentFormat = NumberFormat.getPercentInstance();
         // Arbitrary value 0.4f to be larger and smaller than threshold.
@@ -113,6 +126,7 @@ public class AccessibilitySettingsTest {
     @Test
     @SmallTest
     @Feature({"Accessibility"})
+    @DisableFeatures({ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM})
     public void testChangedFontPrefSavedOnStop() {
         mSettingsActivityTestRule.startSettingsActivity();
         AccessibilitySettings accessibilitySettings = mSettingsActivityTestRule.getFragment();
@@ -142,6 +156,7 @@ public class AccessibilitySettingsTest {
     @Test
     @SmallTest
     @Feature({"Accessibility"})
+    @DisableFeatures({ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM})
     public void testUnchangedFontPrefNotSavedOnStop() {
         mSettingsActivityTestRule.startSettingsActivity();
         AccessibilitySettings accessibilitySettings = mSettingsActivityTestRule.getFragment();
@@ -169,10 +184,11 @@ public class AccessibilitySettingsTest {
                 InstrumentationRegistry.getInstrumentation().addMonitor(
                         new IntentFilter(Settings.ACTION_CAPTIONING_SETTINGS), null, false);
 
-        // First scroll to bottom of the page, then click.
-        onView(ViewMatchers.isRoot()).perform(swipeUp());
-        onView(withText(org.chromium.chrome.R.string.accessibility_captions_title))
-                .perform(click());
+        // First scroll to the Captions preference, then click.
+        onView(withId(R.id.recycler_view))
+                .perform(RecyclerViewActions.scrollTo(
+                        hasDescendant(withText(R.string.accessibility_captions_title))));
+        onView(withText(R.string.accessibility_captions_title)).perform(click());
         monitor.waitForActivityWithTimeout(CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL);
         Assert.assertEquals("Monitor for has not been called", 1, monitor.getHits());
         InstrumentationRegistry.getInstrumentation().removeMonitor(monitor);
@@ -192,7 +208,7 @@ public class AccessibilitySettingsTest {
         AccessibilitySettings accessibilitySettings = mSettingsActivityTestRule.getFragment();
 
         Preference imageDescriptionsPref =
-                accessibilitySettings.findPreference(AccessibilitySettings.PREF_IMAGE_DESCRIPTIONS);
+                accessibilitySettings.findPreference(PREF_IMAGE_DESCRIPTIONS);
 
         Assert.assertNotNull(imageDescriptionsPref);
         Assert.assertTrue(
@@ -202,21 +218,24 @@ public class AccessibilitySettingsTest {
                 InstrumentationRegistry.getInstrumentation().addMonitor(
                         new IntentFilter(Intent.ACTION_MAIN), null, true);
 
-        // First scroll to bottom of the page, then click.
-        onView(ViewMatchers.isRoot()).perform(swipeUp());
-        onView(withText(org.chromium.chrome.R.string.image_descriptions_settings_title))
-                .perform(click());
+        // First scroll to the Image Descriptions preference, then click.
+        onView(withId(R.id.recycler_view))
+                .perform(RecyclerViewActions.scrollTo(
+                        hasDescendant(withText(R.string.image_descriptions_settings_title))));
+        onView(withText(R.string.image_descriptions_settings_title)).perform(click());
 
-        monitor.waitForActivityWithTimeout(CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL);
-        Assert.assertEquals(
-                "Clicking image descriptions should open subpage", 1, monitor.getHits());
+        // The activity is blocked, so just wait for the ActivityMonitor to capture an Intent.
+        CriteriaHelper.pollInstrumentationThread(
+                () -> monitor.getHits() >= 1, "Clicking image descriptions should open subpage");
+
         InstrumentationRegistry.getInstrumentation().removeMonitor(monitor);
     }
 
     private void assertFontSizePrefs(
             final boolean expectedForceEnableZoom, final float expectedFontScale) {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            FontSizePrefs fontSizePrefs = FontSizePrefs.getInstance();
+            FontSizePrefs fontSizePrefs =
+                    FontSizePrefs.getInstance(Profile.getLastUsedRegularProfile());
             Assert.assertEquals(expectedForceEnableZoom, fontSizePrefs.getForceEnableZoom());
             Assert.assertEquals(expectedFontScale, fontSizePrefs.getFontScaleFactor(), 0.001f);
         });
@@ -224,13 +243,13 @@ public class AccessibilitySettingsTest {
 
     private static void userSetTextScale(final AccessibilitySettings accessibilitySettings,
             final TextScalePreference textScalePref, final float textScale) {
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
                 () -> accessibilitySettings.onPreferenceChange(textScalePref, textScale));
     }
 
     private static void userSetForceEnableZoom(final AccessibilitySettings accessibilitySettings,
-            final ChromeBaseCheckBoxPreference forceEnableZoomPref, final boolean enabled) {
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
+            final ChromeSwitchPreference forceEnableZoomPref, final boolean enabled) {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
                 () -> accessibilitySettings.onPreferenceChange(forceEnableZoomPref, enabled));
     }
 }

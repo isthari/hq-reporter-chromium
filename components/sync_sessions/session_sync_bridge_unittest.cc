@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_helpers.h"
-#include "base/json/json_writer.h"
-#include "base/memory/weak_ptr.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/mock_callback.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/sync/base/client_tag_hash.h"
@@ -27,17 +24,16 @@
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/metadata_change_list.h"
 #include "components/sync/model/model_type_sync_bridge.h"
-#include "components/sync/model/sync_metadata_store.h"
+#include "components/sync/protocol/entity_metadata.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
-#include "components/sync/protocol/proto_value_conversions.h"
 #include "components/sync/protocol/session_specifics.pb.h"
 #include "components/sync/protocol/sync_enums.pb.h"
-#include "components/sync/test/model/mock_model_type_change_processor.h"
-#include "components/sync/test/model/model_type_store_test_util.h"
-#include "components/sync/test/model/test_matchers.h"
+#include "components/sync/test/mock_commit_queue.h"
+#include "components/sync/test/mock_model_type_change_processor.h"
+#include "components/sync/test/model_type_store_test_util.h"
+#include "components/sync/test/test_matchers.h"
 #include "components/sync_sessions/mock_sync_sessions_client.h"
 #include "components/sync_sessions/session_sync_prefs.h"
-#include "components/sync_sessions/tab_node_pool.h"
 #include "components/sync_sessions/test_matchers.h"
 #include "components/sync_sessions/test_synced_window_delegates_getter.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -54,17 +50,13 @@ using syncer::EntityData;
 using syncer::FailedCommitResponseDataList;
 using syncer::IsEmptyMetadataBatch;
 using syncer::MetadataBatch;
-using syncer::MetadataChangeList;
 using syncer::MockModelTypeChangeProcessor;
 using testing::_;
 using testing::AtLeast;
-using testing::Contains;
 using testing::ElementsAre;
 using testing::Eq;
-using testing::InSequence;
 using testing::IsEmpty;
 using testing::IsNull;
-using testing::Matcher;
 using testing::Not;
 using testing::NotNull;
 using testing::Pair;
@@ -140,7 +132,7 @@ sync_pb::SessionSpecifics CreateHeaderSpecificsWithOneTab(
   specifics.mutable_header()->set_device_type(
       sync_pb::SyncEnums_DeviceType_TYPE_LINUX);
   sync_pb::SessionWindow* window = specifics.mutable_header()->add_window();
-  window->set_browser_type(sync_pb::SessionWindow_BrowserType_TYPE_TABBED);
+  window->set_browser_type(sync_pb::SyncEnums_BrowserType_TYPE_TABBED);
   window->set_window_id(window_id);
   window->add_tab(tab_id);
   return specifics;
@@ -208,7 +200,8 @@ class SessionSyncBridgeTest : public ::testing::Test {
     syncer::DataTypeActivationRequest request;
     request.error_handler = base::DoNothing();
     request.cache_guid = kLocalCacheGuid;
-    request.authenticated_account_id = CoreAccountId("SomeAccountId");
+    request.authenticated_account_id =
+        CoreAccountId::FromGaiaId("SomeAccountId");
 
     base::RunLoop loop;
     real_processor_->OnSyncStarting(
@@ -219,8 +212,14 @@ class SessionSyncBridgeTest : public ::testing::Test {
             }));
     loop.Run();
 
+    // ClientTagBasedModelTypeProcessor requires connecting before other
+    // interactions with the worker happen.
+    real_processor_->ConnectSync(
+        std::make_unique<testing::NiceMock<syncer::MockCommitQueue>>());
+
     sync_pb::ModelTypeState state;
-    state.set_initial_sync_done(true);
+    state.set_initial_sync_state(
+        sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_DONE);
     state.set_cache_guid(request.cache_guid);
     state.mutable_progress_marker()->set_data_type_id(
         GetSpecificsFieldNumberFromModelType(syncer::SESSIONS));
@@ -229,7 +228,8 @@ class SessionSyncBridgeTest : public ::testing::Test {
     for (const SessionSpecifics& specifics : remote_data) {
       initial_updates.push_back(SpecificsToUpdateResponse(specifics));
     }
-    real_processor_->OnUpdateReceived(state, std::move(initial_updates));
+    real_processor_->OnUpdateReceived(state, std::move(initial_updates),
+                                      /*gc_directive=*/absl::nullopt);
   }
 
   std::map<std::string, std::unique_ptr<EntityData>> GetAllData() {
@@ -276,8 +276,8 @@ class SessionSyncBridgeTest : public ::testing::Test {
 
   TestSyncedWindowDelegate* AddWindow(
       int window_id,
-      sync_pb::SessionWindow_BrowserType type =
-          sync_pb::SessionWindow_BrowserType_TYPE_TABBED) {
+      sync_pb::SyncEnums_BrowserType type =
+          sync_pb::SyncEnums_BrowserType_TYPE_TABBED) {
     return window_getter_.AddWindow(type,
                                     SessionID::FromSerializedValue(window_id));
   }
@@ -752,7 +752,7 @@ TEST_F(SessionSyncBridgeTest, ShouldPreserveTabbedDataIfCustomTabOnlyFound) {
 
   // Start the bridge with only a custom tab open.
   ResetWindows();
-  AddWindow(kWindowId2, sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB);
+  AddWindow(kWindowId2, sync_pb::SyncEnums_BrowserType_TYPE_CUSTOM_TAB);
   AddTab(kWindowId2, "http://bar.com/");
   InitializeBridge();
   StartSyncing();
@@ -795,7 +795,7 @@ TEST_F(SessionSyncBridgeTest, ShouldPreserveTabbedDataIfNewCustomTabAlsoFound) {
   ShutdownBridge();
 
   // Start the bridge with an additional local custom tab.
-  AddWindow(kWindowId2, sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB);
+  AddWindow(kWindowId2, sync_pb::SyncEnums_BrowserType_TYPE_CUSTOM_TAB);
   AddTab(kWindowId2, "http://bar.com/", kTabId2);
   InitializeBridge();
   StartSyncing();
@@ -819,7 +819,7 @@ TEST_F(SessionSyncBridgeTest, ShouldAssociateIfCustomTabOnlyOnStartup) {
   const int kWindowId = 1000001;
   const int kTabId = 1000002;
 
-  AddWindow(kWindowId, sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB);
+  AddWindow(kWindowId, sync_pb::SyncEnums_BrowserType_TYPE_CUSTOM_TAB);
   AddTab(kWindowId, "http://foo.com/", kTabId);
 
   InitializeBridge();
@@ -843,7 +843,7 @@ TEST_F(SessionSyncBridgeTest, ShouldExposeTabbedWindowAfterCustomTabOnly) {
   const int kTabId1 = 1000003;
   const int kTabId2 = 1000004;
 
-  AddWindow(kWindowId1, sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB);
+  AddWindow(kWindowId1, sync_pb::SyncEnums_BrowserType_TYPE_CUSTOM_TAB);
   AddTab(kWindowId1, "http://foo.com/", kTabId1);
 
   InitializeBridge();
@@ -910,7 +910,8 @@ TEST_F(SessionSyncBridgeTest, ShouldRecycleTabNodeAfterCommitCompleted) {
   // Mimic a commit completing for the initial sync.
   ASSERT_TRUE(real_processor()->HasLocalChangesForTest());
   sync_pb::ModelTypeState state;
-  state.set_initial_sync_done(true);
+  state.set_initial_sync_state(
+      sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_DONE);
   real_processor()->OnCommitCompleted(
       state,
       {CreateSuccessResponse(kLocalCacheGuid),
@@ -1099,7 +1100,7 @@ TEST_F(SessionSyncBridgeTest, ShouldMergeForeignSession) {
   EXPECT_CALL(
       mock_processor(),
       Put(_, EntityDataHasSpecifics(MatchesHeader(kLocalCacheGuid, _, _)), _));
-  EXPECT_CALL(mock_foreign_session_updated_cb(), Run());
+  EXPECT_CALL(mock_foreign_session_updated_cb(), Run()).Times(AtLeast(1));
   StartSyncing({foreign_header, foreign_tab});
 
   std::vector<const SyncedSession*> foreign_sessions;
@@ -1109,6 +1110,20 @@ TEST_F(SessionSyncBridgeTest, ShouldMergeForeignSession) {
               ElementsAre(MatchesSyncedSession(
                   kForeignSessionTag,
                   {{kForeignWindowId, std::vector<int>{kForeignTabId}}})));
+}
+
+// Starting sync even without remote data should trigger a notification for
+// updated foreign session.
+TEST_F(SessionSyncBridgeTest, ShouldTriggerNotificationWithoutRemoteData) {
+  InitializeBridge();
+  ASSERT_THAT(bridge()->GetOpenTabsUIDelegate(), IsNull());
+  // Starting sync, even without remote data, should trigger a notification that
+  // foreign sessions got updated, because `GetOpenTabsUIDelegate()`'s behavior
+  // changed and it no longer returns null.
+  EXPECT_CALL(mock_foreign_session_updated_cb(), Run());
+  StartSyncing();
+
+  EXPECT_THAT(bridge()->GetOpenTabsUIDelegate(), NotNull());
 }
 
 TEST_F(SessionSyncBridgeTest, ShouldNotExposeForeignHeaderWithoutTabs) {
@@ -1229,7 +1244,8 @@ TEST_F(SessionSyncBridgeTest, ShouldHandleRemoteDeletion) {
   StartSyncing({foreign_header, foreign_tab});
 
   sync_pb::ModelTypeState state;
-  state.set_initial_sync_done(true);
+  state.set_initial_sync_state(
+      sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_DONE);
 
   // Mimic receiving a commit ack for the local header entity, to later be able
   // to verify HasLocalChangesForTest() without interferences from the local
@@ -1264,7 +1280,8 @@ TEST_F(SessionSyncBridgeTest, ShouldHandleRemoteDeletion) {
   syncer::UpdateResponseDataList updates;
   updates.push_back(
       CreateTombstone(SessionStore::GetClientTag(foreign_header)));
-  real_processor()->OnUpdateReceived(state, std::move(updates));
+  real_processor()->OnUpdateReceived(state, std::move(updates),
+                                     /*gc_directive=*/absl::nullopt);
 
   foreign_session_tab = nullptr;
   EXPECT_FALSE(bridge()->GetOpenTabsUIDelegate()->GetForeignTab(
@@ -1352,7 +1369,8 @@ TEST_F(SessionSyncBridgeTest, ShouldIgnoreRemoteDeletionOfLocalTab) {
   // Mimic receiving a commit ack for both the tab and the header entity,
   // because otherwise it will be treated as conflict, and then local wins.
   sync_pb::ModelTypeState state;
-  state.set_initial_sync_done(true);
+  state.set_initial_sync_state(
+      sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_DONE);
   real_processor()->OnCommitCompleted(
       state,
       {CreateSuccessResponse(tab_client_tag1),
@@ -1365,7 +1383,8 @@ TEST_F(SessionSyncBridgeTest, ShouldIgnoreRemoteDeletionOfLocalTab) {
   syncer::UpdateResponseDataList updates;
   updates.push_back(CreateTombstone(kLocalCacheGuid));
   updates.push_back(CreateTombstone(tab_client_tag1));
-  real_processor()->OnUpdateReceived(state, std::move(updates));
+  real_processor()->OnUpdateReceived(state, std::move(updates),
+                                     /*gc_directive=*/absl::nullopt);
 
   // State should remain unchanged (deletions ignored).
   EXPECT_THAT(
@@ -1524,8 +1543,9 @@ TEST_F(SessionSyncBridgeTest, ShouldNotBroadcastUpdatesIfEmpty) {
 
   // Mimic receiving an empty list of remote updates.
   sync_pb::ModelTypeState state;
-  state.set_initial_sync_done(true);
-  real_processor()->OnUpdateReceived(state, {});
+  state.set_initial_sync_state(
+      sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_DONE);
+  real_processor()->OnUpdateReceived(state, {}, /*gc_directive=*/absl::nullopt);
 }
 
 TEST_F(SessionSyncBridgeTest, ShouldDoGarbageCollection) {
@@ -1544,7 +1564,8 @@ TEST_F(SessionSyncBridgeTest, ShouldDoGarbageCollection) {
 
   // Construct a remote update.
   sync_pb::ModelTypeState state;
-  state.set_initial_sync_done(true);
+  state.set_initial_sync_state(
+      sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_DONE);
   syncer::UpdateResponseDataList updates;
   // Two entities belong to a recent session.
   updates.push_back(SpecificsToUpdateResponse(
@@ -1570,17 +1591,15 @@ TEST_F(SessionSyncBridgeTest, ShouldDoGarbageCollection) {
       Delete(SessionStore::GetTabStorageKey(kStaleSessionTag, kTabNodeId), _));
 
   EXPECT_CALL(mock_foreign_session_updated_cb(), Run()).Times(AtLeast(1));
-  real_processor()->OnUpdateReceived(state, std::move(updates));
+  real_processor()->OnUpdateReceived(state, std::move(updates),
+                                     /*gc_directive=*/absl::nullopt);
 }
 
 TEST_F(SessionSyncBridgeTest, ShouldReturnBrowserTypeInGetData) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(kSyncPopulateTabBrowserTypeInGetData);
-
   const int kWindowId = 1000001;
   const int kTabId = 1000002;
 
-  AddWindow(kWindowId, sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB);
+  AddWindow(kWindowId, sync_pb::SyncEnums_BrowserType_TYPE_CUSTOM_TAB);
   AddTab(kWindowId, "http://foo.com/", kTabId);
 
   InitializeBridge();
@@ -1590,29 +1609,8 @@ TEST_F(SessionSyncBridgeTest, ShouldReturnBrowserTypeInGetData) {
       SessionStore::GetTabStorageKey(kLocalCacheGuid, /*tab_node_id=*/0));
   ASSERT_THAT(tab_data, NotNull());
 
-  EXPECT_EQ(sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB,
+  EXPECT_EQ(sync_pb::SyncEnums_BrowserType_TYPE_CUSTOM_TAB,
             tab_data->specifics.session().tab().browser_type());
-}
-
-TEST_F(SessionSyncBridgeTest,
-       ShouldReturnBrowserTypeInGetDataWithFeatureDisabled) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndDisableFeature(kSyncPopulateTabBrowserTypeInGetData);
-
-  const int kWindowId = 1000001;
-  const int kTabId = 1000002;
-
-  AddWindow(kWindowId, sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB);
-  AddTab(kWindowId, "http://foo.com/", kTabId);
-
-  InitializeBridge();
-  StartSyncing();
-
-  std::unique_ptr<EntityData> tab_data = GetData(
-      SessionStore::GetTabStorageKey(kLocalCacheGuid, /*tab_node_id=*/0));
-  ASSERT_THAT(tab_data, NotNull());
-
-  EXPECT_FALSE(tab_data->specifics.session().tab().has_browser_type());
 }
 
 }  // namespace

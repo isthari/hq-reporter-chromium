@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,9 +61,8 @@ using ::showcase_utils::Close;
       assertWithMatcher:grey_sufficientlyVisible()];
 }
 
-// Tests that the overflow badge presents and that the popup menu is presented
-// when it is tapped.
-- (void)testOverflowbadge {
+// Tests that the overflow badge presents the popup menu when enabled.
+- (void)testOverflowBadge {
   // Tap on button to show the overflow badge.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           kSCShowOverflowDisplayedBadgeButton)]
@@ -85,12 +84,9 @@ using ::showcase_utils::Close;
                                    kBadgeButtonOverflowAccessibilityIdentifier)]
       performAction:grey_tap()];
 
-  // Assert that the badge overflow popup menu is being presented.
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_allOf(grey_accessibilityID(
-                         kBadgePopupMenuTableViewAccessibilityIdentifier),
-                     grey_sufficientlyVisible(), nil)]
+  // Assert that the new badge overflow popup menu is being presented.
+  [[EarlGrey selectElementWithMatcher:grey_allOf(grey_text(@"Save password"),
+                                                 grey_interactable(), nil)]
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Dismiss popup menu by tapping outside of the menu. Tapping the displayed
@@ -100,6 +96,9 @@ using ::showcase_utils::Close;
       selectElementWithMatcher:grey_accessibilityID(
                                    kBadgeButtonOverflowAccessibilityIdentifier)]
       performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:grey_allOf(grey_text(@"Save password"),
+                                                 grey_interactable(), nil)]
+      assertWithMatcher:grey_notVisible()];
   [[EarlGrey selectElementWithMatcher:
                  grey_allOf(grey_accessibilityID(
                                 kBadgeUnreadIndicatorAccessibilityIdentifier),

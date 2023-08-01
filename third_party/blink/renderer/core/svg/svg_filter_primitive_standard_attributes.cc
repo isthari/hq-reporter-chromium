@@ -168,13 +168,12 @@ void SVGFilterPrimitiveStandardAttributes::SetStandardAttributes(
 }
 
 LayoutObject* SVGFilterPrimitiveStandardAttributes::CreateLayoutObject(
-    const ComputedStyle&,
-    LegacyLayout) {
+    const ComputedStyle&) {
   return MakeGarbageCollected<LayoutSVGFilterPrimitive>(this);
 }
 
 bool SVGFilterPrimitiveStandardAttributes::LayoutObjectIsNeeded(
-    const ComputedStyle& style) const {
+    const DisplayStyle& style) const {
   if (IsA<SVGFilterElement>(parentNode()))
     return SVGElement::LayoutObjectIsNeeded(style);
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/launch_util.h"
@@ -45,8 +45,8 @@ class LaunchOptionsComboboxModel : public ui::ComboboxModel {
   int GetIndexForLaunchType(extensions::LaunchType launch_type) const;
 
   // Overridden from ui::ComboboxModel:
-  int GetItemCount() const override;
-  std::u16string GetItemAt(int index) const override;
+  size_t GetItemCount() const override;
+  std::u16string GetItemAt(size_t index) const override;
 
  private:
   // A list of the launch types available in the combobox, in order.
@@ -88,11 +88,11 @@ int LaunchOptionsComboboxModel::GetIndexForLaunchType(
   return 0;
 }
 
-int LaunchOptionsComboboxModel::GetItemCount() const {
+size_t LaunchOptionsComboboxModel::GetItemCount() const {
   return launch_types_.size();
 }
 
-std::u16string LaunchOptionsComboboxModel::GetItemAt(int index) const {
+std::u16string LaunchOptionsComboboxModel::GetItemAt(size_t index) const {
   return launch_type_messages_[index];
 }
 
@@ -223,7 +223,7 @@ void AppInfoSummaryPanel::AddSubviews() {
 
 void AppInfoSummaryPanel::LaunchOptionsChanged() {
   SetLaunchType(launch_options_combobox_model_->GetLaunchTypeAtIndex(
-      launch_options_combobox_->GetSelectedIndex()));
+      launch_options_combobox_->GetSelectedIndex().value()));
 }
 
 void AppInfoSummaryPanel::StartCalculatingAppSize() {
@@ -233,7 +233,8 @@ void AppInfoSummaryPanel::StartCalculatingAppSize() {
   if (!app_->path().empty()) {
     extensions::path_util::CalculateAndFormatExtensionDirectorySize(
         app_->path(), IDS_APPLICATION_INFO_SIZE_SMALL_LABEL,
-        base::BindOnce(&AppInfoSummaryPanel::OnAppSizeCalculated, AsWeakPtr()));
+        base::BindOnce(&AppInfoSummaryPanel::OnAppSizeCalculated,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -280,7 +281,7 @@ bool AppInfoSummaryPanel::CanDisplayLicenses() const {
   return !GetLicenseUrls().empty();
 }
 
-const std::vector<GURL> AppInfoSummaryPanel::GetLicenseUrls() const {
+std::vector<GURL> AppInfoSummaryPanel::GetLicenseUrls() const {
   if (!extensions::SharedModuleInfo::ImportsModules(app_))
     return std::vector<GURL>();
 

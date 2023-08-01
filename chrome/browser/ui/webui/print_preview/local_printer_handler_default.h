@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/values.h"
@@ -44,15 +44,18 @@ class LocalPrinterHandlerDefault : public PrinterHandler {
   void StartGetCapability(const std::string& destination_id,
                           GetCapabilityCallback callback) override;
   void StartPrint(const std::u16string& job_title,
-                  base::Value settings,
+                  base::Value::Dict settings,
                   scoped_refptr<base::RefCountedMemory> print_data,
                   PrintCallback callback) override;
 
  private:
-  static PrinterList EnumeratePrintersAsync(const std::string& locale);
-  static base::Value FetchCapabilitiesAsync(const std::string& device_name,
-                                            const std::string& locale);
-  static std::string GetDefaultPrinterAsync(const std::string& locale);
+  static PrinterList EnumeratePrintersOnBlockingTaskRunner(
+      const std::string& locale);
+  static base::Value::Dict FetchCapabilitiesOnBlockingTaskRunner(
+      const std::string& device_name,
+      const std::string& locale);
+  static std::string GetDefaultPrinterOnBlockingTaskRunner(
+      const std::string& locale);
 
   const raw_ptr<content::WebContents> preview_web_contents_;
 

@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-// #import {dom, Polymer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-// #import {invokePolymerMethod} from '../../display_manager.m.js';
+import {dom, Polymer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {invokePolymerMethod} from '../../display_manager.js';
 // clang-format on
 
 /**
@@ -38,7 +39,7 @@
  */
 
 /** @polymerBehavior */
-/* #export */ var MultiStepBehavior = {
+export var MultiStepBehavior = {
   properties: {
     uiStep: {
       type: String,
@@ -73,10 +74,11 @@
    * @return {Array<string>}
    */
   listSteps() {
-    if (Array.isArray(this.UI_STEPS))
+    if (Array.isArray(this.UI_STEPS)) {
       return this.UI_STEPS.slice();
-    let result = [];
-    for (let [key, value] of Object.entries(this.UI_STEPS)) {
+    }
+    const result = [];
+    for (const [key, value] of Object.entries(this.UI_STEPS)) {
       result.push(value);
     }
     return result;
@@ -87,7 +89,7 @@
    * @return {string}
    */
   defaultUIStep() {
-    throw 'Element should define default UI state';
+    throw new Error('Element should define default UI state');
   },
 
   ready() {
@@ -107,8 +109,9 @@
   },
 
   onBeforeHide() {
-    if (this.uiStep)
+    if (this.uiStep) {
       this.hideUIStep_(this.uiStep);
+    }
     this.shown_ = false;
   },
 
@@ -125,18 +128,20 @@
    * current step).
    */
   applyToStepElements(func, step = this.uiStep) {
-    for (let element of this.stepElements_[step] || []) {
+    for (const element of this.stepElements_[step] || []) {
       func(element);
     }
   },
 
   setUIStep(step) {
     if (this.uiStep) {
-      if (this.uiStep == step)
+      if (this.uiStep == step) {
         return;
+      }
       this.hideUIStep_(this.uiStep);
     }
     this.uiStep = step;
+    this.shadowRoot.host.setAttribute('multistep', step);
     this.showUIStep_(this.uiStep);
   },
 
@@ -145,8 +150,8 @@
       // Will execute from onBeforeShow.
       return;
     }
-    for (let element of this.stepElements_[step] || []) {
-      cr.ui.login.invokePolymerMethod(element, 'onBeforeShow');
+    for (const element of this.stepElements_[step] || []) {
+      invokePolymerMethod(element, 'onBeforeShow');
       element.hidden = false;
       // Trigger show() if element is an oobe-dialog
       if (element.show && typeof element.show === 'function') {
@@ -156,8 +161,8 @@
   },
 
   hideUIStep_(step) {
-    for (let element of this.stepElements_[step] || []) {
-      cr.ui.login.invokePolymerMethod(element, 'onBeforeHide');
+    for (const element of this.stepElements_[step] || []) {
+      invokePolymerMethod(element, 'onBeforeHide');
       element.hidden = true;
     }
   },
@@ -169,12 +174,12 @@
    */
   refreshStepBindings_() {
     this.stepElements_ = {};
-    var matches = Polymer.dom(this.root).querySelectorAll('[for-step]');
-    for (let child of matches) {
-      let stepsList = child.getAttribute('for-step');
-      for (let stepChunk of stepsList.split(',')) {
-        let step = stepChunk.trim();
-        let list = this.stepElements_[step] || [];
+    var matches = dom(this.root).querySelectorAll('[for-step]');
+    for (const child of matches) {
+      const stepsList = child.getAttribute('for-step');
+      for (const stepChunk of stepsList.split(',')) {
+        const step = stepChunk.trim();
+        const list = this.stepElements_[step] || [];
         list.push(child);
         this.stepElements_[step] = list;
       }
@@ -195,7 +200,7 @@
 MultiStepBehavior.Proto;
 
 /** @interface */
-/* #export */ class MultiStepBehaviorInterface {
+export class MultiStepBehaviorInterface {
   setUIStep(step) {}
   /** @return {string} */
   defaultUIStep() {}

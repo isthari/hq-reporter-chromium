@@ -1,14 +1,21 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.toolbar;
 
+import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
-import android.view.View;
+import android.view.View.OnClickListener;
 
-import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures.AdaptiveToolbarButtonVariant;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
+
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarButtonVariant;
 import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
+
+import java.util.Objects;
 
 /** An implementation of the {@link ButtonData}. */
 public class ButtonDataImpl implements ButtonData {
@@ -19,22 +26,25 @@ public class ButtonDataImpl implements ButtonData {
 
     public ButtonDataImpl() {}
 
-    public ButtonDataImpl(boolean canShow, Drawable drawable, View.OnClickListener onClickListener,
-            int contentDescriptionResId, boolean supportsTinting,
-            IPHCommandBuilder iphCommandBuilder, boolean isEnabled,
+    public ButtonDataImpl(boolean canShow, @NonNull Drawable drawable,
+            @NonNull OnClickListener onClickListener, String contentDescription,
+            boolean supportsTinting, @Nullable IPHCommandBuilder iphCommandBuilder,
+            boolean isEnabled, @AdaptiveToolbarButtonVariant int buttonVariant) {
+        this(canShow, drawable, onClickListener, contentDescription,
+                /*actionChipLabelResId= */ Resources.ID_NULL, supportsTinting, iphCommandBuilder,
+                isEnabled, buttonVariant);
+    }
+
+    public ButtonDataImpl(boolean canShow, @NonNull Drawable drawable,
+            @NonNull OnClickListener onClickListener, String contentDescription,
+            @StringRes int actionChipLabelResId, boolean supportsTinting,
+            @Nullable IPHCommandBuilder iphCommandBuilder, boolean isEnabled,
             @AdaptiveToolbarButtonVariant int buttonVariant) {
         mCanShow = canShow;
         mIsEnabled = isEnabled;
-        mButtonSpec = new ButtonSpec(drawable, onClickListener, contentDescriptionResId,
-                supportsTinting, iphCommandBuilder, buttonVariant);
-    }
-
-    // A convenience constructor, doesn't require callers to import AdaptiveToolbarButtonVariant
-    public ButtonDataImpl(boolean canShow, Drawable drawable, View.OnClickListener onClickListener,
-            int contentDescriptionResId, boolean supportsTinting,
-            IPHCommandBuilder iphCommandBuilder, boolean isEnabled) {
-        this(canShow, drawable, onClickListener, contentDescriptionResId, supportsTinting,
-                iphCommandBuilder, isEnabled, AdaptiveToolbarButtonVariant.UNKNOWN);
+        mButtonSpec = new ButtonSpec(drawable, onClickListener, /*onLongClickListener=*/null,
+                contentDescription, supportsTinting, iphCommandBuilder, buttonVariant,
+                actionChipLabelResId);
     }
 
     @Override
@@ -52,6 +62,10 @@ public class ButtonDataImpl implements ButtonData {
         return mButtonSpec;
     }
 
+    public void setButtonSpec(ButtonSpec buttonSpec) {
+        mButtonSpec = buttonSpec;
+    }
+
     public void setCanShow(boolean canShow) {
         mCanShow = canShow;
     }
@@ -60,7 +74,53 @@ public class ButtonDataImpl implements ButtonData {
         mIsEnabled = enabled;
     }
 
-    public void setButtonSpec(ButtonSpec buttonSpec) {
-        mButtonSpec = buttonSpec;
+    /** Convenience method to update the IPH command builder. */
+    public void updateIPHCommandBuilder(@Nullable IPHCommandBuilder iphCommandBuilder) {
+        ButtonSpec currentSpec = getButtonSpec();
+        ButtonSpec newSpec =
+                new ButtonSpec(currentSpec.getDrawable(), currentSpec.getOnClickListener(),
+                        currentSpec.getOnLongClickListener(), currentSpec.getContentDescription(),
+                        currentSpec.getSupportsTinting(), iphCommandBuilder,
+                        currentSpec.getButtonVariant(), currentSpec.getActionChipLabelResId());
+        setButtonSpec(newSpec);
+    }
+
+    /** Convenience method to update the action chip string resource ID. */
+    public void updateActionChipResourceId(@StringRes int newActionChipResourceId) {
+        ButtonSpec currentSpec = getButtonSpec();
+        ButtonSpec newSpec =
+                new ButtonSpec(currentSpec.getDrawable(), currentSpec.getOnClickListener(),
+                        currentSpec.getOnLongClickListener(), currentSpec.getContentDescription(),
+                        currentSpec.getSupportsTinting(), currentSpec.getIPHCommandBuilder(),
+                        currentSpec.getButtonVariant(), newActionChipResourceId);
+        setButtonSpec(newSpec);
+    }
+
+    /** Convenience method to update the action chip string resource ID. */
+    public void updateDrawable(Drawable newDrawable) {
+        ButtonSpec currentSpec = getButtonSpec();
+        ButtonSpec newSpec = new ButtonSpec(newDrawable, currentSpec.getOnClickListener(),
+                currentSpec.getOnLongClickListener(), currentSpec.getContentDescription(),
+                currentSpec.getSupportsTinting(), currentSpec.getIPHCommandBuilder(),
+                currentSpec.getButtonVariant(), currentSpec.getActionChipLabelResId());
+        setButtonSpec(newSpec);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ButtonDataImpl)) {
+            return false;
+        }
+        ButtonDataImpl that = (ButtonDataImpl) o;
+        return mCanShow == that.mCanShow && mIsEnabled == that.mIsEnabled
+                && Objects.equals(mButtonSpec, that.mButtonSpec);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mCanShow, mIsEnabled, mButtonSpec);
     }
 }

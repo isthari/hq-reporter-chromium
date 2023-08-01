@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,7 @@ class URLDataManagerBackend : public base::SupportsUserData::Data {
   void AddDataSource(URLDataSourceImpl* source);
 
   void UpdateWebUIDataSource(const std::string& source_name,
-                             const base::DictionaryValue& update);
+                             const base::Value::Dict& update);
 
   // DataSource invokes this. Sends the data to the URLRequest. |bytes| may be
   // null, which signals an error handling the request.
@@ -62,7 +62,7 @@ class URLDataManagerBackend : public base::SupportsUserData::Data {
   // Creates and sets the response headers for the given request.
   static scoped_refptr<net::HttpResponseHeaders> GetHeaders(
       URLDataSourceImpl* source,
-      const std::string& path,
+      const GURL& url,
       const std::string& origin);
 
   // Returns whether |url| passes some sanity checks and is a valid GURL.
@@ -74,6 +74,12 @@ class URLDataManagerBackend : public base::SupportsUserData::Data {
   // Returns the schemes that are used by WebUI (i.e. the set from content and
   // its embedder).
   static std::vector<std::string> GetWebUISchemes();
+
+  // When this is true, GetWebUISchemes() bypasses the caching of its result
+  // and always recomputes the list of WebUI schemes.  This should be used in
+  // tests that inject custom WebUI schemes, which may otherwise not be seen.
+  CONTENT_EXPORT static void SetDisallowWebUISchemeCachingForTesting(
+      bool disallow_caching);
 
  private:
   typedef std::map<std::string, scoped_refptr<URLDataSourceImpl>> DataSourceMap;

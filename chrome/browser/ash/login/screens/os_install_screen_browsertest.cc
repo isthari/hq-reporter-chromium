@@ -1,18 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
 #include "chrome/browser/ash/login/screens/welcome_screen.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
+#include "chrome/browser/ash/login/test/oobe_screens_utils.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
-#include "chrome/browser/ui/webui/chromeos/login/network_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/os_install_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/os_trial_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/network_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/os_install_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/os_trial_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/welcome_screen_handler.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
@@ -86,7 +88,7 @@ class OsInstallScreenTest : public OobeBaseTest, OsInstallClient::Observer {
   }
 
   void AdvanceToOsInstallScreen() {
-    OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+    test::WaitForWelcomeScreen();
     test::OobeJS().TapOnPath(kWelcomeGetStarted);
 
     OobeScreenWaiter(OsTrialScreenView::kScreenId).Wait();
@@ -143,7 +145,7 @@ class OsInstallScreenTest : public OobeBaseTest, OsInstallClient::Observer {
 // If the kAllowOsInstall switch is not set, clicking `Get Started` button
 // should show the network screen.
 IN_PROC_BROWSER_TEST_F(OobeBaseTest, InstallButtonHiddenByDefault) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
 
   test::OobeJS().ExpectVisiblePath(kWelcomeScreen);
   test::OobeJS().TapOnPath(kWelcomeGetStarted);
@@ -153,7 +155,7 @@ IN_PROC_BROWSER_TEST_F(OobeBaseTest, InstallButtonHiddenByDefault) {
 // If the kAllowOsInstall is set, clicking `Get Started` button show show the
 // `OS Trial` screen
 IN_PROC_BROWSER_TEST_F(OsInstallScreenTest, InstallButtonVisibleWithSwitch) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
 
   test::OobeJS().ExpectVisiblePath(kWelcomeScreen);
   test::OobeJS().TapOnPath(kWelcomeGetStarted);
@@ -221,7 +223,10 @@ IN_PROC_BROWSER_TEST_F(OsInstallScreenTest, OsInstallGenericError) {
 
 // Check that a successful install shows the success step and countdown timer,
 // which will shut down the computer automatically after 60 seconds.
-IN_PROC_BROWSER_TEST_F(OsInstallScreenTest, OsInstallSuccessAutoShutdown) {
+// TODO(crbug.com/1318903): Re-enable this test on linux-chromeos-dbg.
+// TODO(crbug.com/1324627): Fix this test.
+IN_PROC_BROWSER_TEST_F(OsInstallScreenTest,
+                       DISABLED_OsInstallSuccessAutoShutdown) {
   base::ScopedMockTimeMessageLoopTaskRunner mocked_task_runner;
   SetTickClockForTesting(mocked_task_runner->GetMockTickClock());
   auto* ti = OsInstallClient::Get()->GetTestInterface();

@@ -1,13 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/customization/customization_wallpaper_util.h"
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/customization/customization_document.h"
@@ -39,9 +38,8 @@ bool SaveResizedWallpaper(const gfx::ImageSkia& image,
   scoped_refptr<base::RefCountedBytes> image_data = new base::RefCountedBytes();
   gfx::JPEGCodec::Encode(*resized_image.bitmap(), 90 /*quality=*/,
                          &image_data->data());
-  size_t written_bytes = base::WriteFile(
-      file_path, image_data->front_as<const char>(), image_data->size());
-  return written_bytes == image_data->size();
+  return base::WriteFile(
+      file_path, base::make_span(image_data->front(), image_data->size()));
 }
 
 // Returns true if both file paths exist.
@@ -57,14 +55,14 @@ bool ResizeAndSaveCustomizedDefaultWallpaper(
     gfx::ImageSkia image,
     const base::FilePath& resized_small_path,
     const base::FilePath& resized_large_path) {
-  return SaveResizedWallpaper(image,
-                              gfx::Size(ash::kSmallWallpaperMaxWidth,
-                                        ash::kSmallWallpaperMaxHeight),
-                              resized_small_path) &&
-         SaveResizedWallpaper(image,
-                              gfx::Size(ash::kLargeWallpaperMaxWidth,
-                                        ash::kLargeWallpaperMaxHeight),
-                              resized_large_path);
+  return SaveResizedWallpaper(
+             image,
+             gfx::Size(kSmallWallpaperMaxWidth, kSmallWallpaperMaxHeight),
+             resized_small_path) &&
+         SaveResizedWallpaper(
+             image,
+             gfx::Size(kLargeWallpaperMaxWidth, kLargeWallpaperMaxHeight),
+             resized_large_path);
 }
 
 // Checks the result of |ResizeAndSaveCustomizedDefaultWallpaper| and sends
@@ -106,8 +104,8 @@ void OnCustomizedDefaultWallpaperDecoded(
       base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
-  base::PostTaskAndReplyWithResult(
-      task_runner.get(), FROM_HERE,
+  task_runner->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&ResizeAndSaveCustomizedDefaultWallpaper,
                      wallpaper->image().DeepCopy(), resized_small_path,
                      resized_large_path),
@@ -171,8 +169,8 @@ void StartSettingCustomizedDefaultWallpaper(const GURL& wallpaper_url,
       base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
-  base::PostTaskAndReplyWithResult(
-      task_runner.get(), FROM_HERE,
+  task_runner->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&CheckCustomizedWallpaperFilesExist, resized_small_path,
                      resized_large_path),
       base::BindOnce(&SetCustomizedDefaultWallpaperAfterCheck, wallpaper_url,

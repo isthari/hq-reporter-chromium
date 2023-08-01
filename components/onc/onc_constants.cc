@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -107,6 +107,7 @@ const char kActivationType[] = "ActivationType";
 const char kAllowRoaming[] = "AllowRoaming";
 const char kAPN[] = "APN";
 const char kAPNList[] = "APNList";
+const char kCustomAPNList[] = "CustomAPNList";
 const char kESN[] = "ESN";
 const char kFamily[] = "Family";
 const char kFirmwareRevision[] = "FirmwareRevision";
@@ -117,6 +118,9 @@ const char kEID[] = "EID";
 const char kICCID[] = "ICCID";
 const char kIMEI[] = "IMEI";
 const char kIMSI[] = "IMSI";
+const char kLastConnectedAttachApnProperty[] = "LastConnectedAttachApnProperty";
+const char kLastConnectedDefaultApnProperty[] =
+    "LastConnectedDefaultApnProperty";
 const char kLastGoodAPN[] = "LastGoodAPN";
 const char kManufacturer[] = "Manufacturer";
 const char kMDN[] = "MDN";
@@ -135,6 +139,7 @@ const char kSignalStrength[] = "SignalStrength";
 const char kSIMLockStatus[] = "SIMLockStatus";
 const char kSIMPresent[] = "SIMPresent";
 const char kSMDPAddress[] = "SMDPAddress";
+const char kSMDSAddress[] = "SMDSAddress";
 const char kSupportNetworkScan[] = "SupportNetworkScan";
 const char kTechnologyCdma1Xrtt[] = "CDMA1XRTT";
 const char kTechnologyEdge[] = "EDGE";
@@ -164,6 +169,21 @@ const char kAuthentication[] = "Authentication";
 const char kLocalizedName[] = "LocalizedName";
 const char kLanguage[] = "Language";
 const char kAttach[] = "Attach";
+const char kId[] = "Id";
+const char kState[] = "State";
+const char kStateEnabled[] = "Enabled";
+const char kStateDisabled[] = "Disabled";
+const char kAuthenticationAutomatic[] = "";
+const char kAuthenticationPap[] = "PAP";
+const char kAuthenticationChap[] = "CHAP";
+const char kIpType[] = "IpType";
+const char kIpTypeAutomatic[] = "";
+const char kIpTypeIpv4[] = "IPv4";
+const char kIpTypeIpv6[] = "IPv6";
+const char kIpTypeIpv4Ipv6[] = "IPv4orIPv6";
+const char kApnTypes[] = "ApnTypes";
+const char kApnTypeDefault[] = "Default";
+const char kApnTypeAttach[] = "Attach";
 }  // namespace cellular_apn
 
 namespace cellular_found_network {
@@ -224,6 +244,7 @@ namespace wifi {
 const char kAllowGatewayARPPolling[] = "AllowGatewayARPPolling";
 const char kAutoConnect[] = "AutoConnect";
 const char kBSSID[] = "BSSID";
+const char kBSSIDAllowlist[] = "BSSIDAllowlist";
 const char kEAP[] = "EAP";
 const char kFrequency[] = "Frequency";
 const char kFrequencyList[] = "FrequencyList";
@@ -234,11 +255,14 @@ const char kSSID[] = "SSID";
 const char kSecurity[] = "Security";
 const char kSecurityNone[] = "None";
 const char kSignalStrength[] = "SignalStrength";
+const char kSignalStrengthRssi[] = "SignalStrengthRssi";
 const char kWEP_8021X[] = "WEP-8021X";
 const char kWEP_PSK[] = "WEP-PSK";
 const char kWPA_EAP[] = "WPA-EAP";
 const char kWPA_PSK[] = "WPA-PSK";
 const char kWPA2_PSK[] = "WPA2-PSK";
+const char kPasspointId[] = "PasspointId";
+const char kPasspointMatchType[] = "PasspointMatchType";
 }  // namespace wifi
 
 // Deprecated, properties exist for ignoring old ONC config entries.
@@ -442,6 +466,7 @@ const char kPasswordAndOTP[] = "PasswordAndOTP";
 namespace wireguard {
 const char kAllowedIPs[] = "AllowedIPs";
 const char kEndpoint[] = "Endpoint";
+const char kIPAddresses[] = "IPAddresses";
 const char kPeers[] = "Peers";
 const char kPersistentKeepalive[] = "PersistentKeepalive";
 const char kPresharedKey[] = "PresharedKey";
@@ -502,6 +527,7 @@ const char kPasswordPlaceholderVerbatim[] = "${PASSWORD}";
 }  // namespace substitutes
 
 namespace global_network_config {
+const char kAllowCellularSimLock[] = "AllowCellularSimLock";
 const char kAllowOnlyPolicyCellularNetworks[] =
     "AllowOnlyPolicyCellularNetworks";
 const char kAllowOnlyPolicyNetworksToAutoconnect[] =
@@ -514,8 +540,9 @@ const char kAllowOnlyPolicyNetworksToConnectIfAvailable[] =
 // AllowOnlyPolicyNetworksToConnectIfAvailable field are currently only applied
 // to WiFi networks. TODO(crbug.com/1234561): Fix this when ONC field is
 // updated.
-const char* kAllowOnlyPolicyWiFiToConnect = kAllowOnlyPolicyNetworksToConnect;
-const char* kAllowOnlyPolicyWiFiToConnectIfAvailable =
+const char* const kAllowOnlyPolicyWiFiToConnect =
+    kAllowOnlyPolicyNetworksToConnect;
+const char* const kAllowOnlyPolicyWiFiToConnectIfAvailable =
     kAllowOnlyPolicyNetworksToConnectIfAvailable;
 
 const char kBlacklistedHexSSIDs[] = "BlacklistedHexSSIDs";  // Deprecated

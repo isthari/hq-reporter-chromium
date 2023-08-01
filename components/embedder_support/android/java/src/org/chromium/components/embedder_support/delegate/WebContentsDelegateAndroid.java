@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -111,10 +111,11 @@ public class WebContentsDelegateAndroid {
     public void showRepostFormWarningDialog() {}
 
     @CalledByNative
-    public void enterFullscreenModeForTab(boolean prefersNavigationBar) {}
+    public void enterFullscreenModeForTab(boolean prefersNavigationBar, boolean prefersStatusBar) {}
 
     @CalledByNative
-    public void fullscreenStateChangedForTab(boolean prefersNavigationBar) {}
+    public void fullscreenStateChangedForTab(
+            boolean prefersNavigationBar, boolean prefersStatusBar) {}
 
     @CalledByNative
     public void exitFullscreenModeForTab() {}
@@ -180,6 +181,15 @@ public class WebContentsDelegateAndroid {
     @CalledByNative
     public boolean controlsResizeView() {
         return false;
+    }
+
+    /**
+     * @return If shown, returns the height of the virtual keyboard in physical pixels. Otherwise,
+     *         returns 0.
+     */
+    @CalledByNative
+    public int getVirtualKeyboardHeight() {
+        return 0;
     }
 
     /**
