@@ -1,0 +1,3 @@
+callback interface VideoCardGetCallback {
+    void handleCard(VideoCard videoCard);
+};

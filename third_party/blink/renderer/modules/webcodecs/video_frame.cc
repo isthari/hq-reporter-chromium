@@ -99,6 +99,8 @@ media::VideoPixelFormat ToMediaPixelFormat(V8VideoPixelFormat::Enum fmt) {
       return media::PIXEL_FORMAT_ARGB;
     case V8VideoPixelFormat::Enum::kBGRX:
       return media::PIXEL_FORMAT_XRGB;
+    case V8VideoPixelFormat::Enum::kUYVY:
+      return media::PIXEL_FORMAT_UYVY;
   }
 }
 
@@ -111,6 +113,8 @@ media::VideoPixelFormat ToOpaqueMediaPixelFormat(media::VideoPixelFormat fmt) {
       return media::PIXEL_FORMAT_XRGB;
     case media::PIXEL_FORMAT_ABGR:
       return media::PIXEL_FORMAT_XBGR;
+    case media::PIXEL_FORMAT_UYVY:
+      return media::PIXEL_FORMAT_UYVY;
     default:
       NOTIMPLEMENTED() << "Missing support for making " << fmt << " opaque.";
       return fmt;
@@ -138,6 +142,8 @@ absl::optional<V8VideoPixelFormat> ToV8VideoPixelFormat(
       return V8VideoPixelFormat(V8VideoPixelFormat::Enum::kBGRA);
     case media::PIXEL_FORMAT_XRGB:
       return V8VideoPixelFormat(V8VideoPixelFormat::Enum::kBGRX);
+    case media::PIXEL_FORMAT_UYVY:
+      return V8VideoPixelFormat(V8VideoPixelFormat::Enum::kUYVY);      
     default:
       NOTREACHED();
       return absl::nullopt;
@@ -366,6 +372,7 @@ absl::optional<media::VideoPixelFormat> CopyToFormat(
     case media::PIXEL_FORMAT_XRGB:
     case media::PIXEL_FORMAT_ARGB:
     case media::PIXEL_FORMAT_NV12:
+    case media::PIXEL_FORMAT_UYVY:
       break;
     default:
       return absl::nullopt;
@@ -516,10 +523,16 @@ VideoFrame::VideoFrame(scoped_refptr<media::VideoFrame> frame,
   DCHECK(frame);
   handle_ = base::MakeRefCounted<VideoFrameHandle>(
       frame, std::move(sk_image), context, std::move(monitoring_source_id));
+  //frame, std::move(sk_image), context, std::move(monitoring_source_id));
+  // ISTHARI porque no es external allocated memory y el colector de basura la lia
+  //frame, context, std::move(monitoring_source_id));
+  external_allocated_memory_ = 0;
+/*
   external_allocated_memory_ =
       media::VideoFrame::AllocationSize(frame->format(), frame->coded_size());
   context->GetIsolate()->AdjustAmountOfExternalAllocatedMemory(
       external_allocated_memory_);
+*/
 }
 
 VideoFrame::VideoFrame(scoped_refptr<VideoFrameHandle> handle)
@@ -531,15 +544,20 @@ VideoFrame::VideoFrame(scoped_refptr<VideoFrameHandle> handle)
   auto local_frame = handle_->frame();
   if (!local_frame)
     return;
-
+/*
   external_allocated_memory_ = media::VideoFrame::AllocationSize(
       local_frame->format(), local_frame->coded_size());
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
       external_allocated_memory_);
+*/
 }
 
 VideoFrame::~VideoFrame() {
-  ResetExternalMemory();
+//  ResetExternalMemory();
+/*
+  v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
+     -external_allocated_memory_);
+*/
 }
 
 // static

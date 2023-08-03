@@ -1,0 +1,10 @@
+[
+    LegacyNoInterfaceObject
+] interface VideoCardMode {
+    readonly attribute DOMString name;
+    readonly attribute long width;
+    readonly attribute long height; 
+    readonly attribute long frameRateDuration;
+    readonly attribute long frameRateScale;
+    readonly attribute double fps;
+};

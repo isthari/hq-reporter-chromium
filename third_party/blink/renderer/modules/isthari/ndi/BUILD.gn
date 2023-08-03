@@ -1,0 +1,44 @@
+# Copyright 2019 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//media/media_options.gni")
+import("//third_party/blink/renderer/modules/modules.gni")
+import("//third_party/libaom/options.gni")
+import("//third_party/libprotobuf-mutator/fuzzable_proto_library.gni")
+import("//third_party/protobuf/proto_library.gni")
+
+blink_modules_sources("ndi") {
+  sources = [
+    "NdiManager.cc",
+    "NdiManager.h",
+    "Processing.NDI.compat.h",
+    "Processing.NDI.deprecated.h",
+    "Processing.NDI.DynamicLoad.h",
+    "Processing.NDI.Find.h",
+    "Processing.NDI.FrameSync.h",
+    "Processing.NDI.Lib.cplusplus.h",
+    "Processing.NDI.Lib.h",
+    "Processing.NDI.Recv.ex.h",
+    "Processing.NDI.Recv.h",
+    "Processing.NDI.Routing.h",
+    "Processing.NDI.Send.h",
+    "Processing.NDI.structs.h",
+    "Processing.NDI.utilities.h",
+  ]
+  deps = [
+    "//media",
+    "//media/mojo:buildflags",
+#    "//media/mojo/clients",
+    "//media/mojo/mojom",
+    "//third_party/libaom:libaom_buildflags",
+    "//third_party/libyuv:libyuv",
+    "//third_party/opus",
+    "//third_party/decklink",
+  ]
+  libs = [
+    "ndi"
+  ]
+  public_deps = [ "//third_party/blink/renderer/modules/webaudio:webaudio" ]
+}
+

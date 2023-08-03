@@ -1,0 +1,12 @@
+// https://www.w3.org/TR/webdatabase/#databasecallback
+//callback DatabaseCallback = void (Database database);
+
+// https://www.w3.org/TR/webdatabase/#databases
+[
+    ImplementedAs=DOMWindowDecklink,
+    RuntimeEnabled=Database
+] partial interface Window {
+    // TODO(crbug.com/841185): |creationCallback| is not nullable in the spec.
+    [RaisesException] long videoCardList(VideoCardGetCallback callback);
+    NdiManager ndiManager();
+};

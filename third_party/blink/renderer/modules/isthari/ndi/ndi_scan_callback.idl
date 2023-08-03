@@ -1,0 +1,3 @@
+callback interface NdiScanCallback {
+    void onStream(DOMString url, DOMString name);
+};

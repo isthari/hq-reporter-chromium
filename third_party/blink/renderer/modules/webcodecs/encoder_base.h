@@ -53,6 +53,8 @@ class MODULES_EXPORT EncoderBase
   ~EncoderBase() override;
 
   // *_encoder.idl implementation.
+  // ISTHARI
+  // int32_t encodeQueueSize() { return -50; }
   uint32_t encodeQueueSize() { return requested_encodes_; }
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(dequeue, kDequeue)

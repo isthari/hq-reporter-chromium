@@ -1,0 +1,56 @@
+# Copyright 2019 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//media/media_options.gni")
+import("//third_party/blink/renderer/modules/modules.gni")
+import("//third_party/libaom/options.gni")
+import("//third_party/libprotobuf-mutator/fuzzable_proto_library.gni")
+import("//third_party/protobuf/proto_library.gni")
+
+blink_modules_sources("isthari") {
+  sources = [
+    "dom_window_decklink.cc",
+    "dom_window_decklink.h",
+    "linked_list.cc",
+    "linked_list.h",
+    "video_card.cc",
+    "video_card.h",
+    "video_card_mode.cc",
+    "video_card_mode.h",
+    "base/callback_helper.cc",
+    "base/callback_helper.h",
+    "sdi/decklink/decklink_input_stream.cc",
+    "sdi/decklink/decklink_input_stream.h",
+    "sdi/decklink/decklink_output_stream.cc",
+    "sdi/decklink/decklink_output_stream.h",    
+    "ndi/ndi_input_stream.cc",
+    "ndi/ndi_input_stream.h",
+    "ndi/ndi_manager.cc",
+    "ndi/ndi_manager.h",
+    "ndi/ndi_output_stream.cc",
+    "ndi/ndi_output_stream.h",
+  ]
+  deps = [
+    "//media",
+    "//media/mojo:buildflags",
+#    "//media/mojo/clients",
+    "//media/mojo/mojom",
+    "//third_party/libaom:libaom_buildflags",
+    "//third_party/libyuv:libyuv",
+    "//third_party/opus",
+    "//third_party/decklink",
+  ]
+
+if (is_win) {
+  libs = [
+    "Processing.NDI.Lib.x64.lib"
+  ]
+}
+if (is_linux){
+  libs = [
+    "ndi"
+  ]
+}
+  public_deps = [ "//third_party/blink/renderer/modules/webaudio:webaudio" ]
+}

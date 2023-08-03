@@ -8,6 +8,18 @@ import("//third_party/blink/renderer/config.gni")
 # for production.
 static_idl_files_in_modules = get_path_info(
         [
+          "//third_party/blink/renderer/modules/isthari/video_card.idl",
+          "//third_party/blink/renderer/modules/isthari/video_card_audio_callback.idl",          
+          "//third_party/blink/renderer/modules/isthari/video_card_frame_callback.idl",
+          "//third_party/blink/renderer/modules/isthari/video_card_get_callback.idl",
+          "//third_party/blink/renderer/modules/isthari/video_card_mode.idl",
+          "//third_party/blink/renderer/modules/isthari/window_decklink.idl",          
+          "//third_party/blink/renderer/modules/isthari/ndi/ndi_input_stream.idl",
+          "//third_party/blink/renderer/modules/isthari/ndi/ndi_manager.idl",
+          "//third_party/blink/renderer/modules/isthari/ndi/ndi_output_stream.idl",
+          "//third_party/blink/renderer/modules/isthari/ndi/ndi_scan_callback.idl",        
+          "//third_party/blink/renderer/modules/isthari/sdi/decklink/decklink_input_stream.idl",
+          "//third_party/blink/renderer/modules/isthari/sdi/decklink/decklink_output_stream.idl",
           "//third_party/blink/renderer/modules/ad_auction/ad_auction_data_config.idl",
           "//third_party/blink/renderer/modules/ad_auction/ad_request_config.idl",
           "//third_party/blink/renderer/modules/ad_auction/ads.idl",

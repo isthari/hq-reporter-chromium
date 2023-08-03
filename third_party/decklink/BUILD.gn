@@ -11,3 +11,21 @@ if (is_mac) {
     ]
   }
 }
+
+if (is_linux) {
+  static_library("decklink") {
+    sources = [
+      "linux/platform.cpp", 
+      "linux/DeckLinkAPIDispatch.cpp" 
+    ]
+  }
+}
+
+if (is_win) {
+  static_library("decklink") {
+    sources = [
+      "win/platform.cpp",
+      "win/DeckLinkAPI_i.c" 
+    ]
+  }
+}

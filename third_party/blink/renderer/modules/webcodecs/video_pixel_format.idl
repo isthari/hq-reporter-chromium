@@ -5,6 +5,7 @@
 // https://github.com/WICG/web-codecs
 
 enum VideoPixelFormat {
+    "UYVY", 
     // 4:2:0 Y, U, V
     "I420",
 

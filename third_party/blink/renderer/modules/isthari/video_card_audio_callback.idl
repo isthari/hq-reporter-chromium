@@ -1,0 +1,3 @@
+callback interface VideoCardAudioCallback {
+    void handleFrame(AudioData data, long index);
+};

@@ -1,0 +1,7 @@
+[
+    LegacyNoInterfaceObject
+] interface NdiManager {
+    void getScanedStreams(NdiScanCallback callback);
+    NdiInputStream startInputStream(DOMString url, VideoCardFrameCallback callback, VideoCardAudioCallback audioCallback);
+    NdiOutputStream startOutputStream(DOMString label);
+};

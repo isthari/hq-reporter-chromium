@@ -557,10 +557,16 @@ const char* VideoEncoderTraits::GetName() {
   return "VideoEncoder";
 }
 
+long VideoEncoder::wtf() {
+  VLOG(0) << "WTF function";
+  return 100;
+}
+
 // static
 VideoEncoder* VideoEncoder::Create(ScriptState* script_state,
                                    const VideoEncoderInit* init,
                                    ExceptionState& exception_state) {
+ VLOG(0) << "ISTHARI LA CANIA";
   auto* result =
       MakeGarbageCollected<VideoEncoder>(script_state, init, exception_state);
   return exception_state.HadException() ? nullptr : result;
