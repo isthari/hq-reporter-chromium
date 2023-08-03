@@ -112,9 +112,9 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     memset(scaledU_, 128, scaledStrideU_ * height_);
     memset(scaledV_, 128, scaledStrideV_ * height_);
     
-    uint8_t* nextY;
-    uint8_t* nextU;
-    uint8_t* nextV;
+    const uint8_t* nextY;
+    const uint8_t* nextU;
+    const uint8_t* nextV;
     int nextStrideY;
     int nextStrideU;
     int nextStrideV;
@@ -126,13 +126,13 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     //} else 
     if (mediaFrame->HasTextures()){
         //VLOG(0) << "Has textures";
-        auto mediaFrame = frame->frame();
         // TODO llevar el primer bloque a una funcion helper para reutilizar con NDI
         auto wrapper = SharedGpuContext::ContextProviderWrapper();
         scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
         auto* ri = raster_provider->RasterInterface();
         auto* gr_context = raster_provider->GrContext();
-        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, &videoFramePool_);
+        // {} -> gpu:Capabilities
+        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, {}, &videoFramePool_);
 
         nextY = i420originalY_;
         nextU = i420originalU_;

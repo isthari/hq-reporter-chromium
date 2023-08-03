@@ -69,8 +69,7 @@ class MODULES_EXPORT VideoEncoder : public EncoderBase<VideoEncoderTraits> {
  public:
   static VideoEncoder* Create(ScriptState*,
                               const VideoEncoderInit*,
-                              ExceptionState&);
-  long wtf();                               
+                              ExceptionState&);                        
   VideoEncoder(ScriptState*, const VideoEncoderInit*, ExceptionState&);
   ~VideoEncoder() override;
 

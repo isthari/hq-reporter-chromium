@@ -2,6 +2,7 @@
 #include "base/timer/timer.h"
 #include <string>
 
+#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "ndi_manager.h"
 
 namespace blink {
@@ -11,7 +12,8 @@ NdiManager::NdiManager(){
     scanedStreams_ = std::make_shared<std::map<std::string, std::string>>();    
     VLOG(0) << "ndi manager constructor";
     this->find_ = NDIlib_find_create_v2();
-    this->scanTimer_.Start(FROM_HERE, base::Seconds(1), this, &NdiManager::scanCallback);
+    // TODO recuperar
+    //this->scanTimer_.Start(FROM_HERE, base::Seconds(1), WrapCrossThreadWeakPersistent(this), &NdiManager::scanCallback);
 }	
 
 NdiManager* NdiManager::getInstance() {

@@ -557,11 +557,6 @@ const char* VideoEncoderTraits::GetName() {
   return "VideoEncoder";
 }
 
-long VideoEncoder::wtf() {
-  VLOG(0) << "WTF function";
-  return 100;
-}
-
 // static
 VideoEncoder* VideoEncoder::Create(ScriptState* script_state,
                                    const VideoEncoderInit* init,

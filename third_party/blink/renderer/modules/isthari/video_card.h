@@ -9,11 +9,11 @@
 #include <string>
 
 //#include "third_party/ffmpeg/libswresample/swresample.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "media/base/audio_buffer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
+#include "third_party/blink/renderer/platform/allow_discouraged_type.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
@@ -92,7 +92,8 @@ private:
     IDeckLinkOutput *deckLinkOutput_;
     IDeckLinkInput *deckLinkInput_;        
 
-    std::map<int, IDeckLinkDisplayMode*> displayModes_;
+    // TODO quitar esto y cambiar por WTF::HashMap    
+    std::map<int, IDeckLinkDisplayMode*> displayModes_ ALLOW_DISCOURAGED_TYPE("wtf");
     std::list<VideoCardMode *> modes_;
 
     // atributos solo lectura

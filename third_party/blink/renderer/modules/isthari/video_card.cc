@@ -6,6 +6,7 @@
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
 
+#include "base/task/thread_pool.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
@@ -26,7 +27,7 @@ namespace blink {
 
 VideoCard::VideoCard(IDeckLink *deckLink)
     : deckLink_(deckLink),            
-      main_task_runner_(base::ThreadTaskRunnerHandle::Get())
+      main_task_runner_(base::ThreadPool::CreateSingleThreadTaskRunner({}))
 {  
     decklinkInputStream_ = nullptr;
     decklinkOutputStream_ = nullptr;
@@ -197,7 +198,7 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext,
             deckLinkInput_,
             displayMode,
             channels, 
-            frameCallback,
+            std::move(frameCallback),
             audioCallback,
             main_task_runner_);            
 }

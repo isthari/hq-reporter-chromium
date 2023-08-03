@@ -2,7 +2,6 @@
 
 #include "../../video_card_mode.h"
 
-#include "base/threading/thread_task_runner_handle.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_pool.h"

@@ -6,14 +6,7 @@ import("//third_party/blink/renderer/config.gni")
 
 # Generated sources for production
 
-generated_callback_function_sources_in_modules = [
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_input_stream.cc",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_input_stream.h",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_output_stream.cc",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_output_stream.h",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_video_card.cc",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_video_card.h",  
-  
+generated_callback_function_sources_in_modules = [    
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_animate_callback.cc",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_animate_callback.h",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_animator_constructor.cc",
@@ -86,7 +79,7 @@ generated_callback_function_sources_in_modules = [
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_xr_frame_request_callback.h",
 ]
 
-generated_callback_interface_sources_in_modules = [
+generated_callback_interface_sources_in_modules = [  
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_entries_callback.cc",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_entries_callback.h",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_entry_callback.cc",
@@ -1682,6 +1675,18 @@ generated_enumeration_sources_in_modules = [
 ]
 
 generated_interface_sources_in_modules = [
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_input_stream.cc",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_input_stream.h",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_output_stream.cc",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_decklink_output_stream.h",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_video_card.cc",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_video_card.h",  
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_input_stream.cc",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_input_stream.h",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_manager.cc",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_manager.h",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_output_stream.cc",
+  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_output_stream.h",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_abort_payment_event.cc",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_abort_payment_event.h",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_absolute_orientation_sensor.cc",
@@ -2272,12 +2277,6 @@ generated_interface_sources_in_modules = [
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndef_reading_event.h",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndef_record.cc",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndef_record.h",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_input_stream.cc",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_input_stream.h",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_manager.cc",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_manager.h",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_output_stream.cc",
-  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_ndi_output_stream.h",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_network_information.cc",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_network_information.h",
   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_notification.cc",

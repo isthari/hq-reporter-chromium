@@ -5,7 +5,6 @@
 #include <map>
 #include <string>
 
-#include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
 #include "third_party/blink/renderer/modules/isthari/linked_list.h"

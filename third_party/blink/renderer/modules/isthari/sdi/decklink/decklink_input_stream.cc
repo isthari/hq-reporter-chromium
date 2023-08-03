@@ -7,6 +7,7 @@
 #include "media/base/audio_buffer.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "third_party/libyuv/include/libyuv.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
@@ -22,7 +23,7 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
             scoped_refptr<base::SingleThreadTaskRunner> main_task_runner)
     :   deckLinkInput_(decklinkInput),
         displayMode_(displayMode),
-        frameCallback_(frameCallback),
+        frameCallback_(std::move(frameCallback)),
         audioCallback_(audioCallback),
         main_task_runner_(main_task_runner),
         scaledWidth_(1280),
@@ -137,6 +138,7 @@ HRESULT DecklinkInputStream::VideoInputFormatChanged(BMDVideoInputFormatChangedE
 HRESULT DecklinkInputStream::VideoInputFrameArrived(
 		IDeckLinkVideoInputFrame *videoFrame,
 		IDeckLinkAudioInputPacket *audioData) {  
+    VLOG(0) << "Frame arrived";
     if (startTimestamp_ == 0){
         startTimestamp_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     } 
@@ -150,19 +152,9 @@ HRESULT DecklinkInputStream::VideoInputFrameArrived(
     // fusionar con el otro
     if (inputStart_ == 0){
         inputStart_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    }     
-    /*if (now==inputStart_) {
-        now = now + 10000;
-    }*/
+    }         
     timeIn_ = base::Microseconds(now-inputStart_); 
-
-    // enviar el audio lo primero     
-    /*
-    if (audioFrame) {
-        processInputAudio(audioFrame);
-    }
-    */
-
+  
     if(videoFrame) {
         if (videoFrame->GetFlags() & bmdFrameHasNoInputSource) {
 	        // no data
@@ -170,15 +162,17 @@ HRESULT DecklinkInputStream::VideoInputFrameArrived(
             this->processVideoFrame(videoFrame);	    	    
         }
     }
+    /*
     if (audioData) {
         this->processAudioData(audioData);
     }
-
+*/
     frameCounter_++;
     return S_OK;
 }
 
-void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame) {    	            		   
+void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame) {    	      
+    VLOG(0) << "processVideoFrame";
     void *frameBytes;
     auto result = videoFrame->GetBytes(&frameBytes);
     if (result!=S_OK){
@@ -205,57 +199,39 @@ void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame
         scaledWidth_, scaledHeight_, 
         libyuv::FilterMode::kFilterBilinear);
 
-    PostDelayedCrossThreadTask(*main_task_runner_, 
-        FROM_HERE, 
-        CrossThreadBindOnce(&DecklinkInputStream::onVideoFrameReceived,
-        WrapCrossThreadWeakPersistent(this)), base::Microseconds(15000));
-    /*
+    VLOG(0) << "onVideoFrameReceived pre";
     PostCrossThreadTask(*main_task_runner_, 
         FROM_HERE, 
         CrossThreadBindOnce(&DecklinkInputStream::onVideoFrameReceived,
-        WrapCrossThreadWeakPersistent(this)));*/
-
-    /*          
-            // generar la imagen que se manda al codificador
-            libyuv::I420Scale(dstY_, width*1.5,
-               	dstU_, width/2,
-               	dstV_, width/2,
-               	width, height,
-               	inStY_, inWidth_*1.5,
-               	inStU_, inWidth_/2,
-               	inStV_, inWidth_/2,
-               	inWidth_, inHeight_, 
-               	libyuv::FilterMode::kFilterBilinear);
-		PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&VideoCard::OnVideoFrameReceived,WrapCrossThreadWeakPersistent(this)));
-    */
+        WrapCrossThreadWeakPersistent(this)));
 }
 
 void DecklinkInputStream::onVideoFrameReceived() {    
+    VLOG(0) << "onVideoFrameReceived";
+    /*
     if (!isAvailableVideoFrameCallback(frameCallback_)) {
+        VLOG(0) << "alpha";
         VLOG(0) << "Callback is no longer available video SDI";
         this->disable();
     } else {                
+        VLOG(0) << "beta";
         auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
         qtf.IsJust();
+    }*/
+    VLOG(0) << "tetha";
+    if (frameCallback_->IsCallbackObjectCallable()) {
+        VLOG(0) << "true";
+    } else {
+        VLOG(0) << "false";
     }
+    auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
+    VLOG(0) << "tetha2";
+    qtf.IsJust();
+    VLOG(0) << "gamma";
 }
 
 VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {    	
-    /*       	
-    gfx::Size size(width_, height_);        
-	videoFrame_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
-	    size,
-	    gfx::Rect(size),
-	    size,
-	    width_*1.5,
-	    width_/2,
-	    width_/2,
-	    sourceY_,
-	    sourceU_,
-	    sourceV_,
-	    currentFrameTime_);    				
-        */
-
+    VLOG(0) << "getVideoFrame";
     // enviar la escalada
     gfx::Size size(scaledWidth_, scaledHeight_);        
     videoFrame_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
@@ -340,6 +316,7 @@ void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame
         }
       
         frameCounterAudio_++;
+        /*
         for (int channel=0; channel<channels_/2; channel++){
             auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
                 media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
@@ -350,8 +327,8 @@ void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame
                 timeIn_);            
             PostCrossThreadTask(*main_task_runner_, 
                 FROM_HERE, 
-                CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame, channel));
-        }
+                CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), std::move(frame), channel));
+        }*/
     }
 }    
 
@@ -367,7 +344,7 @@ void DecklinkInputStream::processAudioBuffer(uint8_t* audioPointer, int size, in
 }
 
 void DecklinkInputStream::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer, int index) {    
-    // LOG(INFO) << "timestamp " << audioBuffer->timestamp();
+    // LOG(INFO) << "timestamp " << audioBuffer->timestamp();    
     auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
     auto qtf = audioCallback_->handleFrame(nullptr, frame2, index);
     qtf.IsJust(); 

@@ -8,6 +8,7 @@
 #include "media/base/video_util.h"
 #include "ndi_output_stream.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_argb.h"
 #include "third_party/libyuv/include/libyuv/rotate_argb.h"
@@ -70,15 +71,15 @@ void NdiOutputStream::putVideoFrame(VideoFrame* frame){
     } 
         
     if (mediaFrame->HasGpuMemoryBuffer()) {
-        //VLOG(0) << "GPU Frame";
-        auto frame = media::ConvertToMemoryMappedFrame(std::move(mediaFrame));
+        VLOG(0) << "GPU Frame unsupported";
+        //frame = media::ConvertToMemoryMappedFrame(std::move(mediaFrame));
     } else if (mediaFrame->HasTextures()){
         //VLOG(0) << "Has textures";
         auto wrapper = SharedGpuContext::ContextProviderWrapper();
         scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
         auto* ri = raster_provider->RasterInterface();
         auto* gr_context = raster_provider->GrContext();
-        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, &videoFramePool_);
+        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, {}, &videoFramePool_);
     } else {
         //VLOG(0) << "No GPU Frame";
     }
